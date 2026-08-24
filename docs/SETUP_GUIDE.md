@@ -25,7 +25,7 @@ No GPU, API key, paid account, or Python installation is required for the live a
 8. Run `npm run dev`.
 9. Leave that PowerShell window open.
 10. Open Chrome or Edge and visit `http://localhost:3000`.
-11. Press **Start private monitoring** and allow the camera.
+11. Press **Start monitoring** and allow the camera.
 
 To stop the development server, return to PowerShell and press `Ctrl+C` once.
 
@@ -56,16 +56,18 @@ Calibration lasts five seconds. Sit in the position you will use, look forward n
 ## Multilingual voice warnings
 
 1. Open the settings panel.
-2. Keep **Voice guidance** enabled.
-3. Under **Warning language**, choose English, Hindi, Kannada, Marathi, Tamil, or Telugu.
-4. Press **Preview selected voice**.
-5. The system shows the exact installed voice it selected. If it shows **System fallback voice**, install that language in your device's speech or accessibility settings, restart Chrome or Edge, and test again.
+2. Keep **Voice warnings** enabled.
+3. Under **Language**, choose English, Hindi, Kannada, Marathi, Tamil, or Telugu.
+4. Press **Test voice**.
+5. Read the status below the selector. It shows either the matching browser voice or the active fallback.
+
+On Windows, installing a display or speech language pack does not guarantee that Chrome or Edge exposes a matching voice to websites. The app can only use the voices returned by [`speechSynthesis.getVoices()`](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis/getVoices). If the selected voice is unavailable, warnings automatically use Hindi when possible, then English, so alerts do not fail silently. Restart the entire browser after installing voices and test again. Edge administrators should also make sure Microsoft Edge's [**Configure Online Text To Speech** policy](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies/configureonlinetexttospeech) is not disabled.
 
 The wording changes with the detected event. Separate messages cover calibration, long eye closure, high PERCLOS, a yawn, repeated yawning, off-road gaze, head turns, phone presence, loss of driver visibility, warning, critical danger, and attention recovery. Speech is rate-limited so it remains useful instead of becoming distracting.
 
 ## Presentation mode
 
-Press **Explore demo** if a classroom computer has no webcam or camera permission. The demo uses clearly marked synthetic signals and cycles through focused, gaze drift, fatigue, phone, and recovery states. It does not claim to be a real prediction.
+Press **Demo** if a classroom computer has no webcam or camera permission. The demo uses synthetic signals and cycles through focused, gaze drift, fatigue, phone, and recovery states. It does not claim to be a real prediction.
 
 ## Verify before submission
 

@@ -42,7 +42,7 @@ export const metadata: Metadata = {
   creator: "Driver Drowsiness & Distraction Detection System Project",
   openGraph: {
     title: "Driver Drowsiness & Distraction Detection System",
-    description: "See fatigue before it becomes a decision. Private, local, multilingual, and free.",
+    description: "Private, on-device driver monitoring with multilingual warnings.",
     type: "website",
     siteName: "Driver Drowsiness & Distraction Detection System",
     images: [{ url: socialImage, width: 1731, height: 909, alt: "Driver Drowsiness and Distraction Detection System" }],

@@ -66,7 +66,7 @@ The displayed score is exponentially smoothed to avoid flicker. Alert cooldowns 
 - object detection runs less frequently because it is more expensive;
 - React state is updated from compact numeric telemetry, never image buffers;
 - the canvas overlay is cleared and redrawn without retaining frames;
-- precision, balanced, and eco modes change phone-detection cadence.
+- precision, balanced, and eco modes change phone-detection cadence; precision is the default.
 
 ## Security and privacy boundary
 

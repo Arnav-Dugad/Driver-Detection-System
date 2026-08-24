@@ -13,17 +13,18 @@ async function render() {
   );
 }
 
-test("server renders the finished driver-monitoring cockpit", async () => {
+test("server renders the minimal driver-monitoring interface", async () => {
   await access(new URL("../dist/server/index.js", import.meta.url));
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /<title>Driver Drowsiness &amp; Distraction Detection System/);
-  assert.match(html, /See fatigue before it becomes a decision/);
-  assert.match(html, /Start private monitoring/);
-  assert.match(html, /Zero frames retained/);
+  assert.match(html, /Driver monitoring/);
+  assert.match(html, /Start monitoring/);
+  assert.match(html, /No video saved/);
   assert.match(html, /research prototype/i);
+  assert.doesNotMatch(html, /MULTIMODAL FUSION CORE|See fatigue before it becomes a decision/);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|Your site is taking shape/i);
 });
 

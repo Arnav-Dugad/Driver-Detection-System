@@ -72,7 +72,7 @@ Every later push to `main` deploys automatically. GitHub documents this process 
 
 - Camera access works on `localhost` and secure `https://` deployments. Do not test from a raw local HTML file.
 - Chrome or Edge is recommended for the widest MediaPipe and speech support.
-- Voice quality comes from voices installed on the visitor's device. Install the chosen language's speech pack for the most natural result.
+- Voice availability is determined by the current browser's `speechSynthesis.getVoices()` list. If a selected desktop voice is unavailable, the app falls back to Hindi and then English instead of remaining silent.
 - Camera frames remain in the browser with either host. The host serves application files and model weights; it does not receive webcam frames.
 
 ## If deployment fails

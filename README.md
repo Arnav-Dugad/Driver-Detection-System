@@ -21,7 +21,7 @@ There are no API keys, paid services, subscriptions, accounts, or cloud inferenc
 - camera-hidden privacy display that keeps detection active
 - synthetic demo mode for presentations without a camera
 - local session journal and privacy-safe JSON reports
-- responsive cockpit UI, fullscreen mode, keyboard focus, and reduced-motion support
+- clean responsive interface, fullscreen camera, keyboard focus, and mobile-safe controls
 - deterministic unit tests for the signal-processing and risk logic
 - an optional subject-aware training pipeline under `ml/`
 
@@ -65,18 +65,20 @@ Open [http://localhost:3000](http://localhost:3000) in the latest Chrome or Edge
 
 ### 5. Use it
 
-1. Press **Start private monitoring**.
+1. Press **Start monitoring**.
 2. Choose **Allow** when the browser asks for camera permission.
 3. Look forward naturally for five seconds while the system calibrates.
 4. Keep your full face visible with even front lighting.
-5. Use **Explore demo** instead when presenting without a webcam.
+5. Use **Demo** instead when presenting without a webcam.
 6. Press **End session** when finished. A numeric summary is stored only in this browser.
 
 For macOS and Linux, the commands are the same in Terminal. A more detailed beginner guide is in [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md).
 
 ### Choose a warning language
 
-Open **Settings → Alerts → Warning language** and select English, Hindi, Kannada, Marathi, Tamil, or Telugu. The app automatically chooses the most natural matching voice installed on the device. Press **Preview selected voice** to hear it. If the settings panel says **System fallback voice**, install that language's speech pack in Windows, macOS, Android, or iOS and restart the browser.
+Open **Settings → Alerts → Language** and select English, Hindi, Kannada, Marathi, Tamil, or Telugu. Press **Test voice** to hear the exact voice exposed by the current browser.
+
+Desktop browsers do not always expose every Windows language pack through the Web Speech API. The app now prevents silent warnings: it uses the selected language when available, otherwise Hindi, then English. The settings panel clearly shows when a fallback is active. Mobile browsers can continue using their native voices when available.
 
 ## How the intelligence works
 
@@ -112,7 +114,7 @@ Cloudflare Workers is the recommended host for the full application. A ready-to-
 ```text
 app/
   GuardianDashboard.tsx    live vision loop, interface, alerts, session logic
-  globals.css              responsive visual system and motion
+  globals.css              minimal responsive visual system
 lib/detection/
   core.mjs                 tested geometry, calibration, PERCLOS, risk fusion
 public/models/             bundled MediaPipe and EfficientDet model weights
