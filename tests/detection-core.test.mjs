@@ -5,6 +5,7 @@ import {
   buildCalibration,
   calculatePerclos,
   calculateRisk,
+  classifyCameraQuality,
   classifySignals,
   formatDuration,
 } from "../lib/detection/core.mjs";
@@ -62,6 +63,21 @@ test("sensitivity changes personalized thresholds predictably", () => {
   assert.equal(low.eyesClosed, false);
   assert.equal(high.eyesClosed, true);
   assert.ok(high.thresholds.gaze < low.thresholds.gaze);
+});
+
+test("camera quality separates dim scenes from a covered lens", () => {
+  assert.equal(
+    classifyCameraQuality({ brightness: 0.18, contrast: 0.12, darkPixelRatio: 0.7, faceFound: true }),
+    "low-light",
+  );
+  assert.equal(
+    classifyCameraQuality({ brightness: 0.03, contrast: 0.01, darkPixelRatio: 0.98, faceFound: false }),
+    "obstructed",
+  );
+  assert.equal(
+    classifyCameraQuality({ brightness: 0.48, contrast: 0.18, darkPixelRatio: 0.12, faceFound: true }),
+    "clear",
+  );
 });
 
 test("durations are formatted for a glanceable cockpit", () => {

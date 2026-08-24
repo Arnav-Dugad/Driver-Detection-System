@@ -24,12 +24,14 @@ import {
   Siren,
   Smartphone,
   Square,
+  Sun,
   Volume2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   FaceLandmarker,
+  NormalizedLandmark,
   ObjectDetector,
 } from "@mediapipe/tasks-vision";
 import {
@@ -37,6 +39,7 @@ import {
   buildCalibration,
   calculatePerclos,
   calculateRisk,
+  classifyCameraQuality,
   classifySignals,
   clamp,
   extractFaceSignals,
@@ -45,6 +48,8 @@ import {
 
 type Phase = "idle" | "loading" | "calibrating" | "live" | "demo" | "paused";
 type RiskState = "focused" | "caution" | "warning" | "danger";
+type CameraQualityState = "clear" | "low-light" | "obstructed";
+type Theme = "light" | "dark";
 type VoiceLanguage = "en-IN" | "hi-IN" | "kn-IN" | "mr-IN" | "ta-IN" | "te-IN";
 type VoiceAlertKind =
   | "sessionStart"
@@ -57,6 +62,8 @@ type VoiceAlertKind =
   | "head"
   | "phone"
   | "missing"
+  | "lowLight"
+  | "obstruction"
   | "warning"
   | "danger"
   | "recovery";
@@ -134,6 +141,8 @@ const VOICE_ALERTS: Record<VoiceLanguage, Record<VoiceAlertKind, string>> = {
     head: "Your head is turned away. Please face the road.",
     phone: "Phone detected. Put the phone away and focus on the road.",
     missing: "I cannot see the driver clearly. Please face the camera.",
+    lowLight: "The camera image is too dark. Please increase the light in front of you.",
+    obstruction: "The camera appears to be blocked. Please uncover or clean the lens.",
     warning: "Fatigue warning. Please prepare to stop at a safe place.",
     danger: "Critical drowsiness risk. Pull over safely and rest now.",
     recovery: "Thank you. Your attention is back on the road.",
@@ -149,6 +158,8 @@ const VOICE_ALERTS: Record<VoiceLanguage, Record<VoiceAlertKind, string>> = {
     head: "आपका सिर सड़क से दूसरी ओर है। कृपया सामने देखें।",
     phone: "फ़ोन दिखाई दे रहा है। फ़ोन दूर रखें और सड़क पर ध्यान दें।",
     missing: "ड्राइवर साफ़ दिखाई नहीं दे रहा है। कृपया कैमरे की ओर सही स्थिति में बैठें।",
+    lowLight: "कैमरे के लिए रोशनी कम है। कृपया सामने की रोशनी बढ़ाएँ।",
+    obstruction: "कैमरा ढका हुआ है। कृपया लेंस को साफ़ और खुला रखें।",
     warning: "थकान की चेतावनी। कृपया सुरक्षित जगह पर रुकने की तैयारी करें।",
     danger: "गंभीर उनींदापन का खतरा। कृपया तुरंत सुरक्षित जगह पर रुकें और आराम करें।",
     recovery: "धन्यवाद। आपका ध्यान फिर से सड़क पर है।",
@@ -164,6 +175,8 @@ const VOICE_ALERTS: Record<VoiceLanguage, Record<VoiceAlertKind, string>> = {
     head: "ನಿಮ್ಮ ತಲೆ ರಸ್ತೆಯಿಂದ ಬೇರೆ ಕಡೆ ತಿರುಗಿದೆ. ದಯವಿಟ್ಟು ಮುಂದೆ ನೋಡಿ.",
     phone: "ಫೋನ್ ಕಂಡುಬಂದಿದೆ. ಫೋನ್ ದೂರ ಇಟ್ಟು ರಸ್ತೆಯತ್ತ ಗಮನ ಕೊಡಿ.",
     missing: "ಚಾಲಕ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿಲ್ಲ. ದಯವಿಟ್ಟು ಕ್ಯಾಮೆರಾಕ್ಕೆ ಸರಿಯಾಗಿ ಕುಳಿತುಕೊಳ್ಳಿ.",
+    lowLight: "ಕ್ಯಾಮೆರಾಗೆ ಬೆಳಕು ಕಡಿಮೆಯಾಗಿದೆ. ದಯವಿಟ್ಟು ಮುಂಭಾಗದ ಬೆಳಕನ್ನು ಹೆಚ್ಚಿಸಿ.",
+    obstruction: "ಕ್ಯಾಮೆರಾ ಮುಚ್ಚಲ್ಪಟ್ಟಿದೆ. ದಯವಿಟ್ಟು ಲೆನ್ಸ್ ಅನ್ನು ಸ್ವಚ್ಛವಾಗಿ ಮತ್ತು ತೆರೆಯಾಗಿ ಇರಿಸಿ.",
     warning: "ಆಯಾಸದ ಎಚ್ಚರಿಕೆ. ಸುರಕ್ಷಿತ ಸ್ಥಳದಲ್ಲಿ ನಿಲ್ಲಿಸಲು ಸಿದ್ಧರಾಗಿ.",
     danger: "ಗಂಭೀರ ನಿದ್ರಾವಸ್ಥೆಯ ಅಪಾಯ. ತಕ್ಷಣ ಸುರಕ್ಷಿತವಾಗಿ ವಾಹನ ನಿಲ್ಲಿಸಿ ವಿಶ್ರಾಂತಿ ಪಡೆಯಿರಿ.",
     recovery: "ಧನ್ಯವಾದಗಳು. ನಿಮ್ಮ ಗಮನ ಮತ್ತೆ ರಸ್ತೆಯ ಮೇಲಿದೆ.",
@@ -179,6 +192,8 @@ const VOICE_ALERTS: Record<VoiceLanguage, Record<VoiceAlertKind, string>> = {
     head: "तुमचे डोके रस्त्यापासून दुसरीकडे वळले आहे. कृपया समोर पाहा.",
     phone: "फोन दिसत आहे. फोन बाजूला ठेवा आणि रस्त्यावर लक्ष द्या.",
     missing: "चालक स्पष्ट दिसत नाही. कृपया कॅमेऱ्यासमोर योग्य स्थितीत बसा.",
+    lowLight: "कॅमेऱ्यासाठी प्रकाश कमी आहे. कृपया समोरील प्रकाश वाढवा.",
+    obstruction: "कॅमेरा झाकला आहे. कृपया लेन्स स्वच्छ आणि मोकळी ठेवा.",
     warning: "थकव्याची सूचना. सुरक्षित ठिकाणी थांबण्याची तयारी करा.",
     danger: "गंभीर झोपेचा धोका. त्वरित सुरक्षितपणे वाहन थांबवा आणि विश्रांती घ्या.",
     recovery: "धन्यवाद. तुमचे लक्ष पुन्हा रस्त्यावर आहे.",
@@ -194,6 +209,8 @@ const VOICE_ALERTS: Record<VoiceLanguage, Record<VoiceAlertKind, string>> = {
     head: "உங்கள் தலை சாலையிலிருந்து விலகித் திரும்பியுள்ளது. முன்னே பாருங்கள்.",
     phone: "தொலைபேசி கண்டறியப்பட்டது. அதை ஒதுக்கி வைத்து சாலையில் கவனம் செலுத்துங்கள்.",
     missing: "ஓட்டுநர் தெளிவாகத் தெரியவில்லை. கேமராவை நோக்கி சரியாக அமருங்கள்.",
+    lowLight: "கேமராவுக்கு வெளிச்சம் குறைவாக உள்ளது. முன்புற வெளிச்சத்தை அதிகரிக்கவும்.",
+    obstruction: "கேமரா மறைக்கப்பட்டுள்ளது. லென்ஸை சுத்தமாகவும் திறந்தும் வைத்திருங்கள்.",
     warning: "சோர்வு எச்சரிக்கை. பாதுகாப்பான இடத்தில் நிறுத்தத் தயாராகுங்கள்.",
     danger: "கடுமையான தூக்க அபாயம். உடனே பாதுகாப்பாக வாகனத்தை நிறுத்தி ஓய்வு எடுங்கள்.",
     recovery: "நன்றி. உங்கள் கவனம் மீண்டும் சாலையில் உள்ளது.",
@@ -209,6 +226,8 @@ const VOICE_ALERTS: Record<VoiceLanguage, Record<VoiceAlertKind, string>> = {
     head: "మీ తల రోడ్డుకు దూరంగా తిరిగింది. దయచేసి ముందుకు చూడండి.",
     phone: "ఫోన్ గుర్తించబడింది. ఫోన్ పక్కన పెట్టి రోడ్డుపై దృష్టి పెట్టండి.",
     missing: "డ్రైవర్ స్పష్టంగా కనిపించడం లేదు. దయచేసి కెమెరాకు సరైన స్థానంలో కూర్చోండి.",
+    lowLight: "కెమెరాకు వెలుతురు తక్కువగా ఉంది. దయచేసి ముందు వెలుతురును పెంచండి.",
+    obstruction: "కెమెరా కప్పబడి ఉంది. దయచేసి లెన్స్‌ను శుభ్రంగా మరియు తెరిచి ఉంచండి.",
     warning: "అలసట హెచ్చరిక. సురక్షిత ప్రదేశంలో ఆపడానికి సిద్ధం అవ్వండి.",
     danger: "తీవ్రమైన నిద్రమత్తు ప్రమాదం. వెంటనే సురక్షితంగా వాహనం ఆపి విశ్రాంతి తీసుకోండి.",
     recovery: "ధన్యవాదాలు. మీ దృష్టి మళ్లీ రోడ్డుపై ఉంది.",
@@ -226,6 +245,8 @@ const VOICE_COOLDOWNS: Record<VoiceAlertKind, number> = {
   head: 18_000,
   phone: 20_000,
   missing: 25_000,
+  lowLight: 60_000,
+  obstruction: 35_000,
   warning: 24_000,
   danger: 9_000,
   recovery: 15_000,
@@ -253,37 +274,37 @@ function selectNaturalVoice(voices: SpeechSynthesisVoice[], language: VoiceLangu
     .sort((left, right) => right.score - left.score)[0]?.voice;
 }
 
-type VoiceResolution = {
-  voice?: SpeechSynthesisVoice;
-  language: VoiceLanguage;
-  fallback: boolean;
-};
-
-function resolveVoice(
-  voices: SpeechSynthesisVoice[],
-  requestedLanguage: VoiceLanguage,
-): VoiceResolution {
-  const requestedVoice = selectNaturalVoice(voices, requestedLanguage);
-  if (requestedVoice) {
-    return { voice: requestedVoice, language: requestedLanguage, fallback: false };
+function measureCameraFrame(
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+) {
+  const width = 32;
+  const height = 18;
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+  context.drawImage(video, 0, 0, width, height);
+  const pixels = context.getImageData(0, 0, width, height).data;
+  const luminance: number[] = [];
+  let darkPixels = 0;
+  let total = 0;
+  for (let index = 0; index < pixels.length; index += 4) {
+    const value =
+      (pixels[index] * 0.2126 + pixels[index + 1] * 0.7152 + pixels[index + 2] * 0.0722) /
+      255;
+    luminance.push(value);
+    total += value;
+    if (value < 0.16) darkPixels += 1;
   }
-
-  const fallbackLanguages: VoiceLanguage[] =
-    requestedLanguage === "en-IN"
-      ? []
-      : requestedLanguage === "hi-IN"
-        ? ["en-IN"]
-        : ["hi-IN", "en-IN"];
-
-  for (const language of fallbackLanguages) {
-    const voice = selectNaturalVoice(voices, language);
-    if (voice) return { voice, language, fallback: true };
-  }
-
+  const brightness = total / luminance.length;
+  const variance =
+    luminance.reduce((sum, value) => sum + (value - brightness) ** 2, 0) /
+    luminance.length;
   return {
-    voice: voices.find((voice) => voice.default) ?? voices[0],
-    language: "en-IN",
-    fallback: requestedLanguage !== "en-IN",
+    brightness,
+    contrast: Math.sqrt(variance),
+    darkPixelRatio: darkPixels / luminance.length,
   };
 }
 
@@ -444,6 +465,11 @@ export default function GuardianDashboard() {
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const [modelReady, setModelReady] = useState(false);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [theme, setTheme] = useState<Theme>("light");
+  const [cameraQuality, setCameraQuality] = useState<{
+    state: CameraQualityState;
+    brightness: number;
+  }>({ state: "clear", brightness: 1 });
   const [settings, setSettings] = useState<Settings>({
     sound: true,
     voice: true,
@@ -455,6 +481,8 @@ export default function GuardianDashboard() {
   });
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const qualityCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
   const objectDetectorRef = useRef<ObjectDetector | null>(null);
@@ -469,6 +497,12 @@ export default function GuardianDashboard() {
   const gazeAwayAtRef = useRef(0);
   const faceMissingAtRef = useRef(0);
   const lastObjectDetectionRef = useRef(0);
+  const lastQualityCheckRef = useRef(0);
+  const qualityCandidateRef = useRef<{ state: CameraQualityState; count: number }>({
+    state: "clear",
+    count: 0,
+  });
+  const cameraQualityRef = useRef(cameraQuality);
   const phoneVisibleRef = useRef(false);
   const riskSmoothedRef = useRef(0);
   const lastAlertAtRef = useRef(0);
@@ -496,6 +530,43 @@ export default function GuardianDashboard() {
   }, [stats]);
 
   useEffect(() => {
+    let savedTheme: string | null = null;
+    try {
+      savedTheme = window.localStorage.getItem("driver-detection-theme");
+    } catch {
+      // The system preference remains available when storage is restricted.
+    }
+    const preferredTheme: Theme =
+      savedTheme === "dark" || savedTheme === "light"
+        ? savedTheme
+        : window.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light";
+    const frame = window.requestAnimationFrame(() => {
+      document.documentElement.dataset.theme = preferredTheme;
+      setTheme(preferredTheme);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const nextTheme = current === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = nextTheme;
+      try {
+        window.localStorage.setItem("driver-detection-theme", nextTheme);
+      } catch {
+        // Theme switching must still work when storage is restricted.
+      }
+      return nextTheme;
+    });
+  }, []);
+
+  useEffect(() => {
+    cameraQualityRef.current = cameraQuality;
+  }, [cameraQuality]);
+
+  useEffect(() => {
     if (!("speechSynthesis" in window)) return;
     const refreshVoices = () => setAvailableVoices([...window.speechSynthesis.getVoices()]);
     refreshVoices();
@@ -505,8 +576,8 @@ export default function GuardianDashboard() {
 
   const active = phase === "live" || phase === "calibrating" || phase === "demo";
   const statusCopy = STATE_COPY[telemetry.state];
-  const voiceResolution = useMemo(
-    () => resolveVoice(availableVoices, settings.voiceLanguage),
+  const selectedVoice = useMemo(
+    () => selectNaturalVoice(availableVoices, settings.voiceLanguage),
     [availableVoices, settings.voiceLanguage],
   );
 
@@ -566,18 +637,12 @@ export default function GuardianDashboard() {
         return false;
       }
 
-      const requestedLanguage = currentSettings.voiceLanguage;
-      const currentVoices = window.speechSynthesis.getVoices();
-      const resolution = resolveVoice(
-        currentVoices.length ? currentVoices : availableVoices,
-        requestedLanguage,
-      );
-      const utterance = new SpeechSynthesisUtterance(
-        VOICE_ALERTS[resolution.language][kind],
-      );
-      if (resolution.voice) utterance.voice = resolution.voice;
-      utterance.lang = resolution.voice?.lang || resolution.language;
-      utterance.rate = urgent ? 0.88 : resolution.language === "en-IN" ? 0.94 : 0.9;
+      const language = currentSettings.voiceLanguage;
+      const utterance = new SpeechSynthesisUtterance(VOICE_ALERTS[language][kind]);
+      const naturalVoice = selectNaturalVoice(availableVoices, language);
+      if (naturalVoice) utterance.voice = naturalVoice;
+      utterance.lang = naturalVoice?.lang || language;
+      utterance.rate = urgent ? 0.88 : language === "en-IN" ? 0.94 : 0.9;
       utterance.pitch = urgent ? 0.96 : 1;
       utterance.volume = 0.96;
 
@@ -586,7 +651,6 @@ export default function GuardianDashboard() {
       lastVoiceAtRef.current[kind] = now;
       lastVoiceGlobalAtRef.current = now;
       voiceTimerRef.current = window.setTimeout(() => {
-        window.speechSynthesis.resume();
         window.speechSynthesis.speak(utterance);
         voiceTimerRef.current = null;
       }, urgent ? 320 : 180);
@@ -692,6 +756,9 @@ export default function GuardianDashboard() {
     gazeAwayAtRef.current = 0;
     faceMissingAtRef.current = 0;
     lastObjectDetectionRef.current = 0;
+    lastQualityCheckRef.current = 0;
+    qualityCandidateRef.current = { state: "clear", count: 0 };
+    cameraQualityRef.current = { state: "clear", brightness: 1 };
     phoneVisibleRef.current = false;
     riskSmoothedRef.current = 0;
     lastHistoryAtRef.current = 0;
@@ -706,7 +773,12 @@ export default function GuardianDashboard() {
     setHistory(emptyHistory);
     setEvents([]);
     setTelemetry(initialTelemetry);
+    setCameraQuality({ state: "clear", brightness: 1 });
     setSessionSeconds(0);
+    const overlay = overlayCanvasRef.current?.getContext("2d");
+    if (overlay && overlayCanvasRef.current) {
+      overlay.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
+    }
   }, []);
 
   const startCamera = useCallback(async () => {
@@ -789,11 +861,17 @@ export default function GuardianDashboard() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
+    const overlay = overlayCanvasRef.current?.getContext("2d");
+    if (overlay && overlayCanvasRef.current) {
+      overlay.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
+    }
     if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current);
     voiceTimerRef.current = null;
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     setPhase("idle");
     setTelemetry(initialTelemetry);
+    cameraQualityRef.current = { state: "clear", brightness: 1 };
+    setCameraQuality({ state: "clear", brightness: 1 });
     setCalibrationProgress(0);
   }, [events, phase, sessionSeconds]);
 
@@ -830,6 +908,48 @@ export default function GuardianDashboard() {
     URL.revokeObjectURL(url);
   }, [baseline, events, sessionSeconds, stats, telemetry.risk, telemetry.state]);
 
+  const drawTracker = useCallback(
+    (landmarks: NormalizedLandmark[] | undefined) => {
+      const canvas = overlayCanvasRef.current;
+      const video = videoRef.current;
+      if (!canvas || !video) return;
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.clearRect(0, 0, width, height);
+      if (!landmarks) return;
+
+      const color = telemetry.state === "danger" ? "#ff6b64" : "#74d9ff";
+      context.save();
+      context.fillStyle = color;
+      context.shadowBlur = 5;
+      context.shadowColor = color;
+      context.globalAlpha = 0.58;
+      for (let index = 0; index < landmarks.length; index += 6) {
+        const point = landmarks[index];
+        context.beginPath();
+        context.arc(point.x * width, point.y * height, 1.25, 0, Math.PI * 2);
+        context.fill();
+      }
+
+      context.globalAlpha = 0.92;
+      for (const index of [33, 133, 159, 145, 263, 362, 386, 374, 468, 473]) {
+        const point = landmarks[index];
+        if (!point) continue;
+        context.beginPath();
+        context.arc(point.x * width, point.y * height, 2.1, 0, Math.PI * 2);
+        context.fill();
+      }
+      context.restore();
+    },
+    [telemetry.state],
+  );
+
   useEffect(() => {
     if (phase !== "calibrating" && phase !== "live") return;
     let frameId = 0;
@@ -857,6 +977,54 @@ export default function GuardianDashboard() {
         const result = landmarker.detectForVideo(video, now);
         const landmarks = result.faceLandmarks[0];
         faceFound = Boolean(landmarks);
+        drawTracker(landmarks);
+
+        if (now - lastQualityCheckRef.current >= 1_200) {
+          lastQualityCheckRef.current = now;
+          if (!qualityCanvasRef.current) qualityCanvasRef.current = document.createElement("canvas");
+          const sample = measureCameraFrame(video, qualityCanvasRef.current);
+          if (sample) {
+            const nextState = classifyCameraQuality({
+              ...sample,
+              faceFound,
+            }) as CameraQualityState;
+            if (qualityCandidateRef.current.state === nextState) {
+              qualityCandidateRef.current.count += 1;
+            } else {
+              qualityCandidateRef.current = { state: nextState, count: 1 };
+            }
+
+            if (
+              qualityCandidateRef.current.count >= 2 &&
+              cameraQualityRef.current.state !== nextState
+            ) {
+              const nextQuality = { state: nextState, brightness: sample.brightness };
+              cameraQualityRef.current = nextQuality;
+              setCameraQuality(nextQuality);
+              if (nextState === "clear") {
+                eventFlagsRef.current.lowLight = false;
+                eventFlagsRef.current.obstruction = false;
+              } else if (
+                phaseRef.current === "calibrating" ||
+                phaseRef.current === "live"
+              ) {
+                const flag = nextState === "low-light" ? "lowLight" : "obstruction";
+                if (!eventFlagsRef.current[flag]) {
+                  eventFlagsRef.current[flag] = true;
+                  pushEvent(
+                    "system",
+                    nextState === "low-light" ? "Low light" : "Camera obstructed",
+                    nextState === "low-light"
+                      ? "Increase the light in front of the driver"
+                      : "Uncover or clean the camera lens",
+                    "medium",
+                  );
+                  soundAlert(false, false, flag);
+                }
+              }
+            }
+          }
+        }
 
         if (settingsRef.current.phoneDetection && objectDetectorRef.current) {
           const cadence = settingsRef.current.performance === "precision" ? 450 : 760;
@@ -1099,7 +1267,11 @@ export default function GuardianDashboard() {
         });
         riskSmoothedRef.current = riskSmoothedRef.current * 0.84 + assessment.score * 0.16;
         const risk = Math.round(riskSmoothedRef.current);
-        if (missingMs > 2500 && !eventFlagsRef.current.missing) {
+        if (
+          missingMs > 2500 &&
+          cameraQualityRef.current.state === "clear" &&
+          !eventFlagsRef.current.missing
+        ) {
           eventFlagsRef.current.missing = true;
           pushEvent("attention", "Driver out of frame", "Reposition the camera for a clear face view", "medium");
           speakAlert("missing");
@@ -1133,7 +1305,7 @@ export default function GuardianDashboard() {
       cancelled = true;
       cancelAnimationFrame(frameId);
     };
-  }, [baseline, phase, pushEvent, soundAlert, speakAlert, updateStats]);
+  }, [baseline, drawTracker, phase, pushEvent, soundAlert, speakAlert, updateStats]);
 
   useEffect(() => {
     if (phase !== "demo") return;
@@ -1276,13 +1448,15 @@ export default function GuardianDashboard() {
   const recommendation = useMemo(() => {
     if (phase === "idle") return "Start monitoring to calibrate.";
     if (phase === "loading") return "Loading on-device models.";
+    if (cameraQuality.state === "obstructed") return "Uncover or clean the camera lens.";
+    if (cameraQuality.state === "low-light") return "Increase the light in front of you.";
     if (phase === "calibrating") return "Face forward with both eyes open.";
     if (!telemetry.faceFound) return "Center your face in even light.";
     if (telemetry.state === "danger") return "Pull over safely and rest now.";
     if (telemetry.state === "warning") return "Prepare to stop safely.";
     if (telemetry.state === "caution") return "Look forward. Stop if this continues.";
     return "Attention is stable.";
-  }, [phase, telemetry.faceFound, telemetry.state]);
+  }, [cameraQuality.state, phase, telemetry.faceFound, telemetry.state]);
 
   return (
     <main className={`app-shell risk-${telemetry.state}`} data-phase={phase}>
@@ -1300,6 +1474,14 @@ export default function GuardianDashboard() {
         <div className="top-actions">
           <button className="icon-button" onClick={() => setHelpOpen(true)} aria-label="Open quick guide">
             <CircleHelp size={18} />
+          </button>
+          <button
+            className="icon-button"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-pressed={theme === "dark"}
+          >
+            {theme === "dark" ? <Sun size={18} /> : <MoonStar size={18} />}
           </button>
           <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
             <Settings2 size={18} />
@@ -1325,6 +1507,12 @@ export default function GuardianDashboard() {
                 <span className="session-clock">{active ? formatDuration(sessionSeconds) : "On-device processing"}</span>
               </div>
               <div className="camera-meta">
+                {active && phase !== "demo" && cameraQuality.state !== "clear" && (
+                  <span className={`quality-pill quality-${cameraQuality.state}`}>
+                    {cameraQuality.state === "low-light" ? <Sun size={13} /> : <CameraOff size={13} />}
+                    <span>{cameraQuality.state === "low-light" ? "Low light" : "Camera blocked"}</span>
+                  </span>
+                )}
                 <span className={`live-pill ${active ? "active" : ""}`}>
                   <i /> {phase === "demo" ? "Demo" : active ? "Live" : "Ready"}
                 </span>
@@ -1341,6 +1529,7 @@ export default function GuardianDashboard() {
 
             <div className={`camera-stage ${settings.privacyMode ? "privacy-on" : ""}`}>
               <video ref={videoRef} muted playsInline aria-label="Live driver camera" />
+              <canvas ref={overlayCanvasRef} className="face-tracker" aria-hidden="true" />
 
               {phase === "idle" && (
                 <div className="stage-empty">
@@ -1563,15 +1752,11 @@ export default function GuardianDashboard() {
                     <option key={language.code} value={language.code}>{language.label} — {language.nativeLabel}</option>
                   ))}
                 </select>
-                <div className={`voice-status ${voiceResolution.fallback ? "voice-fallback" : "voice-found"}`}>
+                <div className={`voice-status ${selectedVoice ? "voice-found" : "voice-browser"}`}>
                   <span className="status-dot" />
                   <span>
-                    <strong>{voiceResolution.voice?.name || "Browser default voice"}</strong>
-                    <small>
-                      {voiceResolution.fallback
-                        ? `${VOICE_LANGUAGES.find((item) => item.code === settings.voiceLanguage)?.label} unavailable · using ${VOICE_LANGUAGES.find((item) => item.code === voiceResolution.language)?.label}`
-                        : "Available in this browser"}
-                    </small>
+                    <strong>{selectedVoice?.name || "Browser-selected voice"}</strong>
+                    <small>{selectedVoice ? "Available in this browser" : "Selected by language at playback"}</small>
                   </span>
                 </div>
               </div>

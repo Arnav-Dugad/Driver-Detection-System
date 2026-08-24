@@ -13,7 +13,9 @@ There are no API keys, paid services, subscriptions, accounts, or cloud inferenc
 - rolling 60-second PERCLOS fatigue measurement
 - Mouth Aspect Ratio (MAR) and temporal yawn detection
 - personalized gaze and head-pose baselines
+- clean, mirrored facial tracking points over the live preview
 - EfficientDet-Lite0 phone detection
+- automatic low-light and obstructed-camera warnings
 - multi-signal temporal risk fusion with concurrency escalation
 - five-second personal calibration
 - context-aware voice alerts for eye closure, PERCLOS, yawning, gaze, head pose, phone use, driver visibility, escalating risk, and recovery
@@ -21,7 +23,7 @@ There are no API keys, paid services, subscriptions, accounts, or cloud inferenc
 - camera-hidden privacy display that keeps detection active
 - synthetic demo mode for presentations without a camera
 - local session journal and privacy-safe JSON reports
-- clean responsive interface, fullscreen camera, keyboard focus, and mobile-safe controls
+- clean responsive interface, light and dark modes, fullscreen camera, keyboard focus, and mobile-safe controls
 - deterministic unit tests for the signal-processing and risk logic
 - an optional subject-aware training pipeline under `ml/`
 
@@ -78,7 +80,7 @@ For macOS and Linux, the commands are the same in Terminal. A more detailed begi
 
 Open **Settings → Alerts → Language** and select English, Hindi, Kannada, Marathi, Tamil, or Telugu. Press **Test voice** to hear the exact voice exposed by the current browser.
 
-Desktop browsers do not always expose every Windows language pack through the Web Speech API. The app now prevents silent warnings: it uses the selected language when available, otherwise Hindi, then English. The settings panel clearly shows when a fallback is active. Mobile browsers can continue using their native voices when available.
+Desktop browsers do not always expose every Windows language pack through the Web Speech API. When a matching installed voice is available, the app selects it. Otherwise it leaves the voice unset and supplies the selected language code so the browser can choose its own speech engine at playback. This preserves Chrome mobile's native behavior instead of forcing an unrelated fallback voice.
 
 ## How the intelligence works
 
