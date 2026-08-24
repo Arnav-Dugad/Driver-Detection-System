@@ -6,7 +6,7 @@ The live browser app works without Python. This directory is for the formal mach
 
 `train_fusion.py` trains a class-balanced Random Forest on numeric temporal windows. It performs a subject-independent holdout, tunes only on the training participants with GroupKFold, and writes:
 
-- `aegis_fusion.joblib`
+- `driver_fusion.joblib`
 - `metrics.json`
 - `feature_importance.csv`
 - `test_predictions.csv`

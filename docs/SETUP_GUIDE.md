@@ -53,6 +53,16 @@ Open `http://localhost:3000` in Chrome or Edge. Stop the server with `Control+C`
 
 Calibration lasts five seconds. Sit in the position you will use, look forward naturally, keep your eyes open, and relax your mouth. Do not intentionally widen your eyes or force a smile. Recalibrate after changing the camera, seat, glasses, lighting, or driver.
 
+## Multilingual voice warnings
+
+1. Open the settings panel.
+2. Keep **Voice guidance** enabled.
+3. Under **Warning language**, choose English, Hindi, Kannada, Marathi, Tamil, or Telugu.
+4. Press **Preview selected voice**.
+5. The system shows the exact installed voice it selected. If it shows **System fallback voice**, install that language in your device's speech or accessibility settings, restart Chrome or Edge, and test again.
+
+The wording changes with the detected event. Separate messages cover calibration, long eye closure, high PERCLOS, a yawn, repeated yawning, off-road gaze, head turns, phone presence, loss of driver visibility, warning, critical danger, and attention recovery. Speech is rate-limited so it remains useful instead of becoming distracting.
+
 ## Presentation mode
 
 Press **Explore demo** if a classroom computer has no webcam or camera permission. The demo uses clearly marked synthetic signals and cycles through focused, gaze drift, fatigue, phone, and recovery states. It does not claim to be a real prediction.
@@ -79,7 +89,7 @@ Use the camera icon beside the address bar to allow permission. Windows users sh
 
 ### The page loads but the detector is slow
 
-Open Aegis settings, choose **Eco**, and switch off phone detection. Close video calls, games, and heavy browser tabs.
+Open the system settings, choose **Eco**, and switch off phone detection. Close video calls, games, and heavy browser tabs.
 
 ### Port 3000 is already in use
 

@@ -15,7 +15,7 @@
 
 ### “Where is the machine learning?”
 
-MediaPipe and EfficientDet are neural perception models. Aegis converts their output into normalized features, then uses personalized temporal fusion. The `ml/` directory adds a subject-aware supervised fusion pipeline for a formal experiment.
+MediaPipe and EfficientDet are neural perception models. The system converts their output into normalized features, then uses personalized temporal fusion. The `ml/` directory adds a subject-aware supervised fusion pipeline for a formal experiment.
 
 ### “Why not classify each image?”
 

@@ -1,10 +1,10 @@
-# Aegis Drive
+# Driver Drowsiness & Distraction Detection System
 
-Aegis Drive is a privacy-first driver drowsiness and distraction detection system built for a college machine-learning project. It runs in the browser, uses the webcam only after permission is granted, and processes every frame on the device.
+Driver Drowsiness & Distraction Detection System is a privacy-first college machine-learning project. It runs in the browser, uses the webcam only after permission is granted, and processes every frame on the device.
 
 There are no API keys, paid services, subscriptions, accounts, or cloud inference. The included model files and runtime are served from this project, so camera frames never need to leave the browser.
 
-> **Safety notice:** Aegis Drive is a research prototype, not certified automotive safety equipment. It must not be relied on to prevent a crash. Never interact with a laptop or phone while driving. If you feel sleepy, pull over safely and rest.
+> **Safety notice:** This system is a research prototype, not certified automotive safety equipment. It must not be relied on to prevent a crash. Never interact with a laptop or phone while driving. If you feel sleepy, pull over safely and rest.
 
 ## What is included
 
@@ -16,7 +16,8 @@ There are no API keys, paid services, subscriptions, accounts, or cloud inferenc
 - EfficientDet-Lite0 phone detection
 - multi-signal temporal risk fusion with concurrency escalation
 - five-second personal calibration
-- progressive audio and voice alerts
+- context-aware voice alerts for eye closure, PERCLOS, yawning, gaze, head pose, phone use, driver visibility, escalating risk, and recovery
+- natural multilingual speech in English, Hindi, Kannada, Marathi, Tamil, and Telugu
 - camera-hidden privacy display that keeps detection active
 - synthetic demo mode for presentations without a camera
 - local session journal and privacy-safe JSON reports
@@ -54,7 +55,7 @@ If Git is not installed, open the GitHub page, choose **Code → Download ZIP**,
 npm install
 ```
 
-### 4. Start Aegis Drive
+### 4. Start the system
 
 ```powershell
 npm run dev
@@ -66,16 +67,20 @@ Open [http://localhost:3000](http://localhost:3000) in the latest Chrome or Edge
 
 1. Press **Start private monitoring**.
 2. Choose **Allow** when the browser asks for camera permission.
-3. Look forward naturally for five seconds while Aegis calibrates.
+3. Look forward naturally for five seconds while the system calibrates.
 4. Keep your full face visible with even front lighting.
 5. Use **Explore demo** instead when presenting without a webcam.
 6. Press **End session** when finished. A numeric summary is stored only in this browser.
 
 For macOS and Linux, the commands are the same in Terminal. A more detailed beginner guide is in [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md).
 
+### Choose a warning language
+
+Open **Settings → Alerts → Warning language** and select English, Hindi, Kannada, Marathi, Tamil, or Telugu. The app automatically chooses the most natural matching voice installed on the device. Press **Preview selected voice** to hear it. If the settings panel says **System fallback voice**, install that language's speech pack in Windows, macOS, Android, or iOS and restart the browser.
+
 ## How the intelligence works
 
-Aegis uses a hybrid architecture. Two pre-trained neural models find facial geometry and objects; an explainable temporal engine then decides when an observation is persistent or important enough to alert.
+The system uses a hybrid architecture. Two pre-trained neural models find facial geometry and objects; an explainable temporal engine then decides when an observation is persistent or important enough to alert.
 
 1. **Face geometry:** MediaPipe detects 478 normalized face and iris landmarks.
 2. **Signal extraction:** EAR, MAR, gaze ratio, yaw, and pitch are calculated from stable landmark groups.
@@ -94,7 +99,13 @@ npm run lint      # code-quality and accessibility rules
 npm run test      # signal-processing and rendered-output tests
 npm run build     # production build
 npm run verify    # lint + tests + production build
+npm run build:pages        # static GitHub Pages build
+npm run deploy:cloudflare  # build and deploy to your Cloudflare account
 ```
+
+## Free hosting
+
+Cloudflare Workers is the recommended host for the full application. A ready-to-run GitHub Pages workflow is also included as a static fallback. Follow the noob-friendly instructions in [docs/HOSTING_GUIDE.md](docs/HOSTING_GUIDE.md).
 
 ## Project structure
 
@@ -142,7 +153,7 @@ Select the camera icon in the browser address bar, allow camera access, reload t
 
 ### The camera is black or busy
 
-Close Zoom, Teams, OBS, and other camera applications. Then reload Aegis Drive.
+Close Zoom, Teams, OBS, and other camera applications. Then reload the system.
 
 ### Detection is slow
 
@@ -165,7 +176,7 @@ Confirm Node 22+ with `node --version`, delete only the project’s `node_module
 - connect a free Bluetooth vibration device through Web Bluetooth
 - package the interface as an installable PWA
 - create a low-light infrared camera profile
-- add multilingual spoken alerts and accessibility testing
+- validate every multilingual alert with native speakers and accessibility testing
 - evaluate alert timing in a driving simulator with ethics approval
 - add signed, tamper-evident fleet reports without storing faces
 

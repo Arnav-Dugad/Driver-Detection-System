@@ -1,14 +1,14 @@
-# Model card — Aegis Drive Guardian OS
+# Model card — Driver Drowsiness & Distraction Detection System
 
 ## Intended use
 
-Aegis Drive is intended for education, prototyping, offline demonstrations, and consented research into driver-state monitoring. It is not intended to control a vehicle, diagnose a medical condition, identify a person, or replace sleep and responsible driving.
+The system is intended for education, prototyping, offline demonstrations, and consented research into driver-state monitoring. It is not intended to control a vehicle, diagnose a medical condition, identify a person, or replace sleep and responsible driving.
 
 ## Model components
 
 - **MediaPipe Face Landmarker:** produces 478 normalized face and iris landmarks.
 - **EfficientDet-Lite0:** detects the `cell phone` object category.
-- **Aegis temporal fusion:** deterministic, personalized signal-processing and risk-scoring logic in `lib/detection/core.mjs`.
+- **Temporal fusion:** deterministic, personalized signal-processing and risk-scoring logic in `lib/detection/core.mjs`.
 - **Optional learned fusion:** a Random Forest training and evaluation pipeline in `ml/train_fusion.py`.
 
 ## Inputs and outputs

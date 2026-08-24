@@ -7,7 +7,7 @@
 - Label events with two reviewers and report inter-rater agreement.
 - Keep every participant in only one train/validation/test split.
 - Measure macro F1, recall for the danger class, false alarms per hour, and alert latency.
-- Compare Aegis against simple fixed-threshold EAR and single-frame baselines.
+- Compare the system against simple fixed-threshold EAR and single-frame baselines.
 
 ## Stage 2 — research-grade prototype
 

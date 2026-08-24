@@ -22,7 +22,7 @@ Webcam frame (memory only)
 
 ## Why hybrid intelligence
 
-A frame classifier alone tends to confuse normal blinks with microsleeps and momentary glances with distraction. Aegis separates perception from temporal reasoning:
+A frame classifier alone tends to confuse normal blinks with microsleeps and momentary glances with distraction. The system separates perception from temporal reasoning:
 
 - neural models answer “where are the face landmarks and objects?”;
 - normalized geometry answers “what is the driver doing?”;
@@ -48,7 +48,7 @@ MAR compares vertical inner-lip distance with mouth width. It is evaluated over 
 
 ### PERCLOS
 
-PERCLOS is the proportion of recent samples classified as eye-closed. Aegis uses a rolling 60-second window in the live interface.
+PERCLOS is the proportion of recent samples classified as eye-closed. The system uses a rolling 60-second window in the live interface.
 
 ### Head and gaze deviation
 

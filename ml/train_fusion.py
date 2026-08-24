@@ -49,7 +49,7 @@ REQUIRED_COLUMNS = ["subject_id", "label", *FEATURES]
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Train Aegis temporal fusion with participant-safe splits."
+        description="Train driver-state temporal fusion with participant-safe splits."
     )
     parser.add_argument("--data", type=Path, required=True, help="Labeled CSV file")
     parser.add_argument(
@@ -190,7 +190,7 @@ def main() -> None:
     ).sort_values("importance_mean", ascending=False)
 
     args.output.mkdir(parents=True, exist_ok=True)
-    joblib.dump(search.best_estimator_, args.output / "aegis_fusion.joblib")
+    joblib.dump(search.best_estimator_, args.output / "driver_fusion.joblib")
     (args.output / "metrics.json").write_text(
         json.dumps(report, indent=2), encoding="utf-8"
     )

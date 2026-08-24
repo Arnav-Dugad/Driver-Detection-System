@@ -13,13 +13,13 @@ async function render() {
   );
 }
 
-test("server renders the finished Aegis cockpit", async () => {
+test("server renders the finished driver-monitoring cockpit", async () => {
   await access(new URL("../dist/server/index.js", import.meta.url));
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
-  assert.match(html, /<title>Aegis Drive/);
+  assert.match(html, /<title>Driver Drowsiness &amp; Distraction Detection System/);
   assert.match(html, /See fatigue before it becomes a decision/);
   assert.match(html, /Start private monitoring/);
   assert.match(html, /Zero frames retained/);

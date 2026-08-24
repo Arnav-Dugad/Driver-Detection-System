@@ -15,6 +15,7 @@ import {
   Eye,
   Gauge,
   Info,
+  Languages,
   LockKeyhole,
   Maximize,
   Minimize,
@@ -53,6 +54,21 @@ import {
 
 type Phase = "idle" | "loading" | "calibrating" | "live" | "demo" | "paused";
 type RiskState = "focused" | "caution" | "warning" | "danger";
+type VoiceLanguage = "en-IN" | "hi-IN" | "kn-IN" | "mr-IN" | "ta-IN" | "te-IN";
+type VoiceAlertKind =
+  | "sessionStart"
+  | "calibration"
+  | "eyes"
+  | "perclos"
+  | "yawn"
+  | "repeatedYawn"
+  | "gaze"
+  | "head"
+  | "phone"
+  | "missing"
+  | "warning"
+  | "danger"
+  | "recovery";
 
 type Baseline = {
   ear: number;
@@ -99,11 +115,152 @@ type EventItem = {
 type Settings = {
   sound: boolean;
   voice: boolean;
+  voiceLanguage: VoiceLanguage;
   phoneDetection: boolean;
   privacyMode: boolean;
   sensitivity: number;
   performance: "balanced" | "precision" | "eco";
 };
+
+const VOICE_LANGUAGES: Array<{ code: VoiceLanguage; label: string; nativeLabel: string }> = [
+  { code: "en-IN", label: "English", nativeLabel: "English (India)" },
+  { code: "hi-IN", label: "Hindi", nativeLabel: "हिन्दी" },
+  { code: "kn-IN", label: "Kannada", nativeLabel: "ಕನ್ನಡ" },
+  { code: "mr-IN", label: "Marathi", nativeLabel: "मराठी" },
+  { code: "ta-IN", label: "Tamil", nativeLabel: "தமிழ்" },
+  { code: "te-IN", label: "Telugu", nativeLabel: "తెలుగు" },
+];
+
+const VOICE_ALERTS: Record<VoiceLanguage, Record<VoiceAlertKind, string>> = {
+  "en-IN": {
+    sessionStart: "Monitoring has started. Please look straight ahead for calibration.",
+    calibration: "Calibration complete. Driver monitoring is now active.",
+    eyes: "Your eyes have been closed for too long. Open your eyes and focus on the road.",
+    perclos: "Frequent eye closure detected. You may be getting drowsy. Please take a safe break.",
+    yawn: "A yawn was detected. Stay alert, and consider taking a break.",
+    repeatedYawn: "Repeated yawning detected. Please pull over safely and rest.",
+    gaze: "Your eyes are away from the road. Please look ahead.",
+    head: "Your head is turned away. Please face the road.",
+    phone: "Phone detected. Put the phone away and focus on the road.",
+    missing: "I cannot see the driver clearly. Please face the camera.",
+    warning: "Fatigue warning. Please prepare to stop at a safe place.",
+    danger: "Critical drowsiness risk. Pull over safely and rest now.",
+    recovery: "Thank you. Your attention is back on the road.",
+  },
+  "hi-IN": {
+    sessionStart: "निगरानी शुरू हो गई है। कैलिब्रेशन के लिए कृपया सामने देखें।",
+    calibration: "कैलिब्रेशन पूरा हुआ। ड्राइवर निगरानी अब चालू है।",
+    eyes: "आपकी आँखें बहुत देर से बंद हैं। आँखें खोलें और सड़क पर ध्यान दें।",
+    perclos: "बार-बार आँखें बंद होना पाया गया है। आप उनींदे हो सकते हैं। कृपया सुरक्षित जगह पर रुकें।",
+    yawn: "जम्हाई का संकेत मिला है। सतर्क रहें और ज़रूरत हो तो विश्राम करें।",
+    repeatedYawn: "बार-बार जम्हाई आ रही है। कृपया सुरक्षित जगह पर गाड़ी रोककर आराम करें।",
+    gaze: "आपकी नज़र सड़क से हट गई है। कृपया सामने देखें।",
+    head: "आपका सिर सड़क से दूसरी ओर है। कृपया सामने देखें।",
+    phone: "फ़ोन दिखाई दे रहा है। फ़ोन दूर रखें और सड़क पर ध्यान दें।",
+    missing: "ड्राइवर साफ़ दिखाई नहीं दे रहा है। कृपया कैमरे की ओर सही स्थिति में बैठें।",
+    warning: "थकान की चेतावनी। कृपया सुरक्षित जगह पर रुकने की तैयारी करें।",
+    danger: "गंभीर उनींदापन का खतरा। कृपया तुरंत सुरक्षित जगह पर रुकें और आराम करें।",
+    recovery: "धन्यवाद। आपका ध्यान फिर से सड़क पर है।",
+  },
+  "kn-IN": {
+    sessionStart: "ಮೇಲ್ವಿಚಾರಣೆ ಆರಂಭವಾಗಿದೆ. ಕ್ಯಾಲಿಬ್ರೇಶನ್‌ಗಾಗಿ ದಯವಿಟ್ಟು ನೇರವಾಗಿ ಮುಂದೆ ನೋಡಿ.",
+    calibration: "ಕ್ಯಾಲಿಬ್ರೇಶನ್ ಪೂರ್ಣಗೊಂಡಿದೆ. ಚಾಲಕ ಮೇಲ್ವಿಚಾರಣೆ ಈಗ ಸಕ್ರಿಯವಾಗಿದೆ.",
+    eyes: "ನಿಮ್ಮ ಕಣ್ಣುಗಳು ಹೆಚ್ಚು ಹೊತ್ತು ಮುಚ್ಚಿವೆ. ಕಣ್ಣು ತೆರೆಯಿರಿ ಮತ್ತು ರಸ್ತೆಯತ್ತ ಗಮನ ಕೊಡಿ.",
+    perclos: "ಪದೇ ಪದೇ ಕಣ್ಣು ಮುಚ್ಚುತ್ತಿರುವುದು ಕಂಡುಬಂದಿದೆ. ನಿಮಗೆ ನಿದ್ರೆ ಬರುತ್ತಿರಬಹುದು. ದಯವಿಟ್ಟು ಸುರಕ್ಷಿತ ಸ್ಥಳದಲ್ಲಿ ನಿಲ್ಲಿಸಿ.",
+    yawn: "ಆಕಳಿಕೆಯ ಸೂಚನೆ ಕಂಡುಬಂದಿದೆ. ಎಚ್ಚರವಾಗಿರಿ ಮತ್ತು ಅಗತ್ಯವಿದ್ದರೆ ವಿಶ್ರಾಂತಿ ಪಡೆಯಿರಿ.",
+    repeatedYawn: "ಪದೇ ಪದೇ ಆಕಳಿಸುತ್ತಿದ್ದೀರಿ. ದಯವಿಟ್ಟು ಸುರಕ್ಷಿತವಾಗಿ ವಾಹನ ನಿಲ್ಲಿಸಿ ವಿಶ್ರಾಂತಿ ಪಡೆಯಿರಿ.",
+    gaze: "ನಿಮ್ಮ ದೃಷ್ಟಿ ರಸ್ತೆಯಿಂದ ಸರಿದಿದೆ. ದಯವಿಟ್ಟು ಮುಂದೆ ನೋಡಿ.",
+    head: "ನಿಮ್ಮ ತಲೆ ರಸ್ತೆಯಿಂದ ಬೇರೆ ಕಡೆ ತಿರುಗಿದೆ. ದಯವಿಟ್ಟು ಮುಂದೆ ನೋಡಿ.",
+    phone: "ಫೋನ್ ಕಂಡುಬಂದಿದೆ. ಫೋನ್ ದೂರ ಇಟ್ಟು ರಸ್ತೆಯತ್ತ ಗಮನ ಕೊಡಿ.",
+    missing: "ಚಾಲಕ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುತ್ತಿಲ್ಲ. ದಯವಿಟ್ಟು ಕ್ಯಾಮೆರಾಕ್ಕೆ ಸರಿಯಾಗಿ ಕುಳಿತುಕೊಳ್ಳಿ.",
+    warning: "ಆಯಾಸದ ಎಚ್ಚರಿಕೆ. ಸುರಕ್ಷಿತ ಸ್ಥಳದಲ್ಲಿ ನಿಲ್ಲಿಸಲು ಸಿದ್ಧರಾಗಿ.",
+    danger: "ಗಂಭೀರ ನಿದ್ರಾವಸ್ಥೆಯ ಅಪಾಯ. ತಕ್ಷಣ ಸುರಕ್ಷಿತವಾಗಿ ವಾಹನ ನಿಲ್ಲಿಸಿ ವಿಶ್ರಾಂತಿ ಪಡೆಯಿರಿ.",
+    recovery: "ಧನ್ಯವಾದಗಳು. ನಿಮ್ಮ ಗಮನ ಮತ್ತೆ ರಸ್ತೆಯ ಮೇಲಿದೆ.",
+  },
+  "mr-IN": {
+    sessionStart: "निरीक्षण सुरू झाले आहे. कॅलिब्रेशनसाठी कृपया सरळ समोर पाहा.",
+    calibration: "कॅलिब्रेशन पूर्ण झाले. चालक निरीक्षण आता सुरू आहे.",
+    eyes: "तुमचे डोळे खूप वेळ बंद आहेत. डोळे उघडा आणि रस्त्यावर लक्ष द्या.",
+    perclos: "वारंवार डोळे मिटत आहेत. तुम्हाला झोप येत असू शकते. कृपया सुरक्षित ठिकाणी थांबा.",
+    yawn: "जांभईचे लक्षण आढळले. सतर्क राहा आणि गरज असल्यास विश्रांती घ्या.",
+    repeatedYawn: "वारंवार जांभई येत आहे. कृपया सुरक्षितपणे वाहन थांबवून विश्रांती घ्या.",
+    gaze: "तुमची नजर रस्त्यावरून हटली आहे. कृपया समोर पाहा.",
+    head: "तुमचे डोके रस्त्यापासून दुसरीकडे वळले आहे. कृपया समोर पाहा.",
+    phone: "फोन दिसत आहे. फोन बाजूला ठेवा आणि रस्त्यावर लक्ष द्या.",
+    missing: "चालक स्पष्ट दिसत नाही. कृपया कॅमेऱ्यासमोर योग्य स्थितीत बसा.",
+    warning: "थकव्याची सूचना. सुरक्षित ठिकाणी थांबण्याची तयारी करा.",
+    danger: "गंभीर झोपेचा धोका. त्वरित सुरक्षितपणे वाहन थांबवा आणि विश्रांती घ्या.",
+    recovery: "धन्यवाद. तुमचे लक्ष पुन्हा रस्त्यावर आहे.",
+  },
+  "ta-IN": {
+    sessionStart: "கண்காணிப்பு தொடங்கியது. அளவீட்டிற்காக நேராக முன்னே பாருங்கள்.",
+    calibration: "அளவீடு முடிந்தது. ஓட்டுநர் கண்காணிப்பு இப்போது செயல்பாட்டில் உள்ளது.",
+    eyes: "உங்கள் கண்கள் அதிக நேரம் மூடியுள்ளன. கண்களைத் திறந்து சாலையில் கவனம் செலுத்துங்கள்.",
+    perclos: "அடிக்கடி கண்கள் மூடப்படுவது கண்டறியப்பட்டது. உங்களுக்கு தூக்கம் வரலாம். பாதுகாப்பான இடத்தில் நிறுத்துங்கள்.",
+    yawn: "கொட்டாவி கண்டறியப்பட்டது. விழிப்புடன் இருங்கள்; தேவைப்பட்டால் ஓய்வு எடுங்கள்.",
+    repeatedYawn: "மீண்டும் மீண்டும் கொட்டாவி வருகிறது. பாதுகாப்பாக வாகனத்தை நிறுத்தி ஓய்வு எடுங்கள்.",
+    gaze: "உங்கள் பார்வை சாலையிலிருந்து விலகியுள்ளது. முன்னே பாருங்கள்.",
+    head: "உங்கள் தலை சாலையிலிருந்து விலகித் திரும்பியுள்ளது. முன்னே பாருங்கள்.",
+    phone: "தொலைபேசி கண்டறியப்பட்டது. அதை ஒதுக்கி வைத்து சாலையில் கவனம் செலுத்துங்கள்.",
+    missing: "ஓட்டுநர் தெளிவாகத் தெரியவில்லை. கேமராவை நோக்கி சரியாக அமருங்கள்.",
+    warning: "சோர்வு எச்சரிக்கை. பாதுகாப்பான இடத்தில் நிறுத்தத் தயாராகுங்கள்.",
+    danger: "கடுமையான தூக்க அபாயம். உடனே பாதுகாப்பாக வாகனத்தை நிறுத்தி ஓய்வு எடுங்கள்.",
+    recovery: "நன்றி. உங்கள் கவனம் மீண்டும் சாலையில் உள்ளது.",
+  },
+  "te-IN": {
+    sessionStart: "పర్యవేక్షణ ప్రారంభమైంది. కాలిబ్రేషన్ కోసం దయచేసి నేరుగా ముందుకు చూడండి.",
+    calibration: "కాలిబ్రేషన్ పూర్తైంది. డ్రైవర్ పర్యవేక్షణ ఇప్పుడు క్రియాశీలంగా ఉంది.",
+    eyes: "మీ కళ్ళు ఎక్కువసేపు మూసుకుని ఉన్నాయి. కళ్ళు తెరిచి రోడ్డుపై దృష్టి పెట్టండి.",
+    perclos: "తరచుగా కళ్ళు మూసుకోవడం గుర్తించబడింది. మీకు నిద్ర వస్తుండవచ్చు. సురక్షిత ప్రదేశంలో ఆపండి.",
+    yawn: "ఆవలింత గుర్తించబడింది. అప్రమత్తంగా ఉండండి; అవసరమైతే విశ్రాంతి తీసుకోండి.",
+    repeatedYawn: "పదేపదే ఆవలింత వస్తోంది. దయచేసి సురక్షితంగా వాహనం ఆపి విశ్రాంతి తీసుకోండి.",
+    gaze: "మీ చూపు రోడ్డుపై నుంచి మళ్లింది. దయచేసి ముందుకు చూడండి.",
+    head: "మీ తల రోడ్డుకు దూరంగా తిరిగింది. దయచేసి ముందుకు చూడండి.",
+    phone: "ఫోన్ గుర్తించబడింది. ఫోన్ పక్కన పెట్టి రోడ్డుపై దృష్టి పెట్టండి.",
+    missing: "డ్రైవర్ స్పష్టంగా కనిపించడం లేదు. దయచేసి కెమెరాకు సరైన స్థానంలో కూర్చోండి.",
+    warning: "అలసట హెచ్చరిక. సురక్షిత ప్రదేశంలో ఆపడానికి సిద్ధం అవ్వండి.",
+    danger: "తీవ్రమైన నిద్రమత్తు ప్రమాదం. వెంటనే సురక్షితంగా వాహనం ఆపి విశ్రాంతి తీసుకోండి.",
+    recovery: "ధన్యవాదాలు. మీ దృష్టి మళ్లీ రోడ్డుపై ఉంది.",
+  },
+};
+
+const VOICE_COOLDOWNS: Record<VoiceAlertKind, number> = {
+  sessionStart: 0,
+  calibration: 0,
+  eyes: 18_000,
+  perclos: 45_000,
+  yawn: 40_000,
+  repeatedYawn: 90_000,
+  gaze: 16_000,
+  head: 18_000,
+  phone: 20_000,
+  missing: 25_000,
+  warning: 24_000,
+  danger: 9_000,
+  recovery: 15_000,
+};
+
+const ASSET_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
+
+function selectNaturalVoice(voices: SpeechSynthesisVoice[], language: VoiceLanguage) {
+  const exactLanguage = language.toLowerCase();
+  const languageRoot = exactLanguage.split("-")[0];
+  return [...voices]
+    .map((voice) => {
+      const voiceLanguage = voice.lang.toLowerCase();
+      const name = voice.name.toLowerCase();
+      let score = 0;
+      if (voiceLanguage === exactLanguage) score += 100;
+      else if (voiceLanguage.startsWith(`${languageRoot}-`) || voiceLanguage === languageRoot) score += 72;
+      if (/natural|neural|enhanced|premium/.test(name)) score += 22;
+      if (/microsoft|google|siri/.test(name)) score += 10;
+      if (voice.localService) score += 8;
+      if (voice.default) score += 2;
+      return { voice, score };
+    })
+    .filter(({ score }) => score >= 72)
+    .sort((left, right) => right.score - left.score)[0]?.voice;
+}
 
 type SessionStats = {
   blinks: number;
@@ -286,9 +443,11 @@ export default function GuardianDashboard() {
   const [sessionSeconds, setSessionSeconds] = useState(0);
   const [cameraLabel, setCameraLabel] = useState("Integrated camera");
   const [modelReady, setModelReady] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [settings, setSettings] = useState<Settings>({
     sound: true,
     voice: true,
+    voiceLanguage: "en-IN",
     phoneDetection: true,
     privacyMode: false,
     sensitivity: 0.62,
@@ -314,6 +473,10 @@ export default function GuardianDashboard() {
   const phoneVisibleRef = useRef(false);
   const riskSmoothedRef = useRef(0);
   const lastAlertAtRef = useRef(0);
+  const lastVoiceAtRef = useRef<Partial<Record<VoiceAlertKind, number>>>({});
+  const lastVoiceGlobalAtRef = useRef(0);
+  const voiceTimerRef = useRef<number | null>(null);
+  const attentionWasImpairedRef = useRef(false);
   const lastHistoryAtRef = useRef(0);
   const eventFlagsRef = useRef<Record<string, boolean>>({});
   const statsRef = useRef<SessionStats>(initialStats);
@@ -333,8 +496,20 @@ export default function GuardianDashboard() {
     statsRef.current = stats;
   }, [stats]);
 
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const refreshVoices = () => setAvailableVoices([...window.speechSynthesis.getVoices()]);
+    refreshVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", refreshVoices);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", refreshVoices);
+  }, []);
+
   const active = phase === "live" || phase === "calibrating" || phase === "demo";
   const statusCopy = STATE_COPY[telemetry.state];
+  const selectedVoice = useMemo(
+    () => selectNaturalVoice(availableVoices, settings.voiceLanguage),
+    [availableVoices, settings.voiceLanguage],
+  );
 
   const updateStats = useCallback((patch: Partial<SessionStats>) => {
     const next = { ...statsRef.current, ...patch };
@@ -374,53 +549,87 @@ export default function GuardianDashboard() {
     }
   }, []);
 
-  const soundAlert = useCallback(
-    (danger = false, force = false) => {
+  const speakAlert = useCallback(
+    (kind: VoiceAlertKind, force = false) => {
       const currentSettings = settingsRef.current;
-      if ((!currentSettings.sound && !force) || typeof window === "undefined") return;
-      unlockAudio();
-      const context = audioContextRef.current;
-      if (!context) return;
-      const start = context.currentTime;
-      const pulses = danger ? 3 : 2;
-      for (let index = 0; index < pulses; index += 1) {
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        oscillator.type = danger ? "sawtooth" : "sine";
-        oscillator.frequency.setValueAtTime(danger ? 860 : 620, start + index * 0.22);
-        oscillator.frequency.exponentialRampToValueAtTime(
-          danger ? 540 : 440,
-          start + index * 0.22 + 0.15,
-        );
-        gain.gain.setValueAtTime(0.0001, start + index * 0.22);
-        gain.gain.exponentialRampToValueAtTime(0.18, start + index * 0.22 + 0.015);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + index * 0.22 + 0.17);
-        oscillator.connect(gain).connect(context.destination);
-        oscillator.start(start + index * 0.22);
-        oscillator.stop(start + index * 0.22 + 0.18);
+      if ((!currentSettings.voice && !force) || !("speechSynthesis" in window)) return false;
+
+      const now = performance.now();
+      const previousForKind = lastVoiceAtRef.current[kind] ?? -Infinity;
+      const previousGlobal = lastVoiceGlobalAtRef.current || -Infinity;
+      const urgent = kind === "danger" || kind === "eyes" || kind === "phone";
+      const globalCooldown = urgent ? 0 : 2_800;
+      if (
+        !force &&
+        (now - previousForKind < VOICE_COOLDOWNS[kind] ||
+          now - previousGlobal < globalCooldown)
+      ) {
+        return false;
       }
-      if ((currentSettings.voice || force) && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(
-          danger ? "Critical alert. Pull over when safe." : "Attention warning. Please focus on the road.",
-        );
-        utterance.rate = 0.92;
-        utterance.pitch = 0.92;
-        utterance.volume = 0.9;
-        window.setTimeout(() => window.speechSynthesis.speak(utterance), danger ? 720 : 520);
-      }
+
+      const language = currentSettings.voiceLanguage;
+      const utterance = new SpeechSynthesisUtterance(VOICE_ALERTS[language][kind]);
+      const naturalVoice = selectNaturalVoice(availableVoices, language);
+      if (naturalVoice) utterance.voice = naturalVoice;
+      utterance.lang = naturalVoice?.lang || language;
+      utterance.rate = urgent ? 0.88 : language === "en-IN" ? 0.94 : 0.9;
+      utterance.pitch = urgent ? 0.96 : 1;
+      utterance.volume = 0.96;
+
+      if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current);
+      window.speechSynthesis.cancel();
+      lastVoiceAtRef.current[kind] = now;
+      lastVoiceGlobalAtRef.current = now;
+      voiceTimerRef.current = window.setTimeout(() => {
+        window.speechSynthesis.speak(utterance);
+        voiceTimerRef.current = null;
+      }, urgent ? 320 : 180);
+      return true;
     },
-    [unlockAudio],
+    [availableVoices],
+  );
+
+  const soundAlert = useCallback(
+    (danger = false, force = false, voiceKind?: VoiceAlertKind) => {
+      const currentSettings = settingsRef.current;
+      if (typeof window === "undefined") return;
+      if (currentSettings.sound || force) {
+        unlockAudio();
+        const context = audioContextRef.current;
+        if (context) {
+          const start = context.currentTime;
+          const pulses = danger ? 3 : 2;
+          for (let index = 0; index < pulses; index += 1) {
+            const oscillator = context.createOscillator();
+            const gain = context.createGain();
+            oscillator.type = danger ? "sawtooth" : "sine";
+            oscillator.frequency.setValueAtTime(danger ? 860 : 620, start + index * 0.22);
+            oscillator.frequency.exponentialRampToValueAtTime(
+              danger ? 540 : 440,
+              start + index * 0.22 + 0.15,
+            );
+            gain.gain.setValueAtTime(0.0001, start + index * 0.22);
+            gain.gain.exponentialRampToValueAtTime(0.18, start + index * 0.22 + 0.015);
+            gain.gain.exponentialRampToValueAtTime(0.0001, start + index * 0.22 + 0.17);
+            oscillator.connect(gain).connect(context.destination);
+            oscillator.start(start + index * 0.22);
+            oscillator.stop(start + index * 0.22 + 0.18);
+          }
+        }
+      }
+      speakAlert(voiceKind ?? (danger ? "danger" : "warning"), force);
+    },
+    [speakAlert, unlockAudio],
   );
 
   const prepareModels = useCallback(async () => {
     if (faceLandmarkerRef.current) return;
     setLoadMessage("Loading 478-point face geometry");
     const vision = await import("@mediapipe/tasks-vision");
-    const fileset = await vision.FilesetResolver.forVisionTasks("/wasm");
+    const fileset = await vision.FilesetResolver.forVisionTasks(`${ASSET_BASE_PATH}/wasm`);
     const faceOptions = {
       baseOptions: {
-        modelAssetPath: "/models/face_landmarker.task",
+        modelAssetPath: `${ASSET_BASE_PATH}/models/face_landmarker.task`,
         delegate: "GPU" as const,
       },
       runningMode: "VIDEO" as const,
@@ -441,7 +650,7 @@ export default function GuardianDashboard() {
       faceLandmarkerRef.current = await vision.FaceLandmarker.createFromOptions(fileset, {
         ...faceOptions,
         baseOptions: {
-          modelAssetPath: "/models/face_landmarker.task",
+          modelAssetPath: `${ASSET_BASE_PATH}/models/face_landmarker.task`,
           delegate: "CPU",
         },
       });
@@ -452,7 +661,7 @@ export default function GuardianDashboard() {
       try {
         objectDetectorRef.current = await vision.ObjectDetector.createFromOptions(fileset, {
           baseOptions: {
-            modelAssetPath: "/models/efficientdet_lite0.tflite",
+            modelAssetPath: `${ASSET_BASE_PATH}/models/efficientdet_lite0.tflite`,
             delegate: "CPU",
           },
           runningMode: "VIDEO",
@@ -481,6 +690,9 @@ export default function GuardianDashboard() {
     riskSmoothedRef.current = 0;
     lastHistoryAtRef.current = 0;
     lastAlertAtRef.current = 0;
+    lastVoiceAtRef.current = {};
+    lastVoiceGlobalAtRef.current = 0;
+    attentionWasImpairedRef.current = false;
     eventFlagsRef.current = {};
     frameCounterRef.current = { count: 0, started: performance.now(), fps: 0 };
     statsRef.current = initialStats;
@@ -525,6 +737,7 @@ export default function GuardianDashboard() {
       setCalibrationProgress(0);
       setPhase("calibrating");
       pushEvent("system", "Private session started", "Camera frames stay on this device", "low");
+      speakAlert("sessionStart");
     } catch (cameraError) {
       console.error(cameraError);
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -539,7 +752,7 @@ export default function GuardianDashboard() {
       );
       setPhase("idle");
     }
-  }, [prepareModels, pushEvent, resetRuntime, unlockAudio]);
+  }, [prepareModels, pushEvent, resetRuntime, speakAlert, unlockAudio]);
 
   const startDemo = useCallback(() => {
     resetRuntime();
@@ -559,9 +772,11 @@ export default function GuardianDashboard() {
       privacy: "No camera frames were stored",
     };
     try {
-      const previous = JSON.parse(localStorage.getItem("aegis-session-history") || "[]");
+      const previous = JSON.parse(
+        localStorage.getItem("driver-detection-session-history") || "[]",
+      );
       localStorage.setItem(
-        "aegis-session-history",
+        "driver-detection-session-history",
         JSON.stringify([summary, ...previous].slice(0, 20)),
       );
     } catch {
@@ -570,6 +785,8 @@ export default function GuardianDashboard() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
+    if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current);
+    voiceTimerRef.current = null;
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     setPhase("idle");
     setTelemetry(initialTelemetry);
@@ -587,7 +804,7 @@ export default function GuardianDashboard() {
 
   const exportReport = useCallback(() => {
     const report = {
-      product: "Aegis Drive",
+      product: "Driver Drowsiness & Distraction Detection System",
       generatedAt: new Date().toISOString(),
       session: {
         duration: formatDuration(sessionSeconds),
@@ -604,7 +821,7 @@ export default function GuardianDashboard() {
     );
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `aegis-drive-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.download = `driver-detection-report-${new Date().toISOString().slice(0, 10)}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   }, [baseline, events, sessionSeconds, stats, telemetry.risk, telemetry.state]);
@@ -720,6 +937,7 @@ export default function GuardianDashboard() {
 
         if (landmarks) {
           faceMissingAtRef.current = 0;
+          eventFlagsRef.current.missing = false;
           const signals = extractFaceSignals(landmarks);
           if (signals) {
             if (phaseRef.current === "calibrating") {
@@ -743,6 +961,7 @@ export default function GuardianDashboard() {
                   `${calibrationSamplesRef.current.length} face samples learned`,
                   "low",
                 );
+                speakAlert("calibration");
               }
             } else {
               const classified = classifySignals(
@@ -753,6 +972,18 @@ export default function GuardianDashboard() {
               eyeSamplesRef.current.push({ time: now, closed: classified.eyesClosed });
               eyeSamplesRef.current = eyeSamplesRef.current.filter((sample) => now - sample.time <= 60_000);
               const perclos = calculatePerclos(eyeSamplesRef.current, now);
+              if (perclos > 0.28 && !eventFlagsRef.current.perclos) {
+                eventFlagsRef.current.perclos = true;
+                pushEvent(
+                  "drowsiness",
+                  "Frequent eye closure",
+                  `${Math.round(perclos * 100)}% closure rate in the rolling window`,
+                  "high",
+                );
+                speakAlert("perclos");
+              } else if (perclos < 0.18) {
+                eventFlagsRef.current.perclos = false;
+              }
 
               if (classified.eyesClosed) {
                 if (!eyeClosedAtRef.current) eyeClosedAtRef.current = now;
@@ -780,8 +1011,26 @@ export default function GuardianDashboard() {
               if (classified.yawning && !eventFlagsRef.current.yawn) {
                 eventFlagsRef.current.yawn = true;
                 recentYawnTimesRef.current.push(now);
+                recentYawnTimesRef.current = recentYawnTimesRef.current.filter(
+                  (time) => now - time <= 10 * 60_000,
+                );
                 updateStats({ yawns: statsRef.current.yawns + 1 });
                 pushEvent("drowsiness", "Yawn pattern detected", "Mouth geometry crossed your baseline", "medium");
+                if (
+                  recentYawnTimesRef.current.length >= 3 &&
+                  !eventFlagsRef.current.repeatedYawn
+                ) {
+                  eventFlagsRef.current.repeatedYawn = true;
+                  pushEvent(
+                    "drowsiness",
+                    "Repeated yawning",
+                    `${recentYawnTimesRef.current.length} yawn patterns within ten minutes`,
+                    "high",
+                  );
+                  speakAlert("repeatedYawn");
+                } else {
+                  speakAlert("yawn");
+                }
               } else if (!classified.yawning) {
                 eventFlagsRef.current.yawn = false;
               }
@@ -822,23 +1071,36 @@ export default function GuardianDashboard() {
                   `${(eyeClosedMs / 1000).toFixed(1)} sec continuous eye closure`,
                   "high",
                 );
+                speakAlert("eyes");
               }
               if (headAwayMs > 1500 && !eventFlagsRef.current.head) {
                 eventFlagsRef.current.head = true;
                 updateStats({ distractions: statsRef.current.distractions + 1 });
                 pushEvent("attention", "Head turned away", "Sustained off-axis head pose", "medium");
+                speakAlert("head");
               }
               if (gazeAwayMs > 1500 && !eventFlagsRef.current.gaze) {
                 eventFlagsRef.current.gaze = true;
                 updateStats({ distractions: statsRef.current.distractions + 1 });
                 pushEvent("attention", "Off-road gaze", "Eyes remained outside the forward zone", "medium");
+                speakAlert("gaze");
               }
               if (phoneVisibleRef.current && !eventFlagsRef.current.phone) {
                 eventFlagsRef.current.phone = true;
                 updateStats({ phoneEvents: statsRef.current.phoneEvents + 1 });
                 pushEvent("device", "Phone visible", "Handheld mobile device detected in frame", "high");
+                lastAlertAtRef.current = now;
+                soundAlert(true, false, "phone");
               } else if (!phoneVisibleRef.current) {
                 eventFlagsRef.current.phone = false;
+              }
+
+              if (smoothedState === "warning" || smoothedState === "danger") {
+                attentionWasImpairedRef.current = true;
+              } else if (smoothedState === "focused" && attentionWasImpairedRef.current) {
+                attentionWasImpairedRef.current = false;
+                pushEvent("recovery", "Attention recovered", "Driver signals returned to the safe zone", "low");
+                speakAlert("recovery");
               }
 
               if (smoothedRisk > statsRef.current.maxRisk) {
@@ -850,7 +1112,11 @@ export default function GuardianDashboard() {
               ) {
                 lastAlertAtRef.current = now;
                 updateStats({ alerts: statsRef.current.alerts + 1 });
-                soundAlert(smoothedState === "danger");
+                soundAlert(
+                  smoothedState === "danger",
+                  false,
+                  smoothedState === "danger" ? "danger" : "warning",
+                );
               }
 
               const eyeQuality = Math.round(
@@ -897,6 +1163,7 @@ export default function GuardianDashboard() {
         if (missingMs > 2500 && !eventFlagsRef.current.missing) {
           eventFlagsRef.current.missing = true;
           pushEvent("attention", "Driver out of frame", "Reposition the camera for a clear face view", "medium");
+          speakAlert("missing");
         }
         setTelemetry((current) => ({
           ...current,
@@ -927,7 +1194,7 @@ export default function GuardianDashboard() {
       cancelled = true;
       cancelAnimationFrame(frameId);
     };
-  }, [baseline, drawOverlay, phase, pushEvent, soundAlert, updateStats]);
+  }, [baseline, drawOverlay, phase, pushEvent, soundAlert, speakAlert, updateStats]);
 
   useEffect(() => {
     if (phase !== "demo") return;
@@ -997,26 +1264,29 @@ export default function GuardianDashboard() {
       if (scene === 10 && !eventFlagsRef.current.demoGaze) {
         eventFlagsRef.current.demoGaze = true;
         pushEvent("attention", "Off-road gaze", "Demo: attention shifted to the side", "medium");
+        speakAlert("gaze");
       }
       if (scene === 18 && !eventFlagsRef.current.demoYawn) {
         eventFlagsRef.current.demoYawn = true;
         updateStats({ yawns: statsRef.current.yawns + 1 });
         pushEvent("drowsiness", "Yawn pattern detected", "Demo: fatigue signature increased", "medium");
+        speakAlert("yawn");
       }
       if (scene === 27 && !eventFlagsRef.current.demoPhone) {
         eventFlagsRef.current.demoPhone = true;
         updateStats({ phoneEvents: statsRef.current.phoneEvents + 1 });
         pushEvent("device", "Phone visible", "Demo: handheld device entered the driver zone", "high");
-        soundAlert(true);
+        soundAlert(true, false, "phone");
       }
       if (scene === 32 && !eventFlagsRef.current.demoRecovery) {
         eventFlagsRef.current.demoRecovery = true;
         pushEvent("recovery", "Attention recovered", "Demo: gaze returned to the forward zone", "low");
+        speakAlert("recovery");
       }
       if (cycle < 2) eventFlagsRef.current = {};
     }, 350);
     return () => window.clearInterval(timer);
-  }, [phase, pushEvent, soundAlert, updateStats]);
+  }, [phase, pushEvent, soundAlert, speakAlert, updateStats]);
 
   useEffect(() => {
     if (!active) return;
@@ -1031,6 +1301,8 @@ export default function GuardianDashboard() {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       faceLandmarkerRef.current?.close();
       objectDetectorRef.current?.close();
+      if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current);
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
       void audioContextRef.current?.close();
     };
   }, []);
@@ -1083,11 +1355,11 @@ export default function GuardianDashboard() {
       </div>
 
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="Aegis Drive home">
+        <a className="brand" href="#top" aria-label="Driver Drowsiness and Distraction Detection System home">
           <BrandMark />
           <span>
-            <strong>AEGIS</strong>
-            <small>DRIVE / GUARDIAN OS</small>
+            <strong>DRIVER DROWSINESS</strong>
+            <small>&amp; DISTRACTION DETECTION SYSTEM</small>
           </span>
         </a>
         <div className="system-badges" aria-label="System status">
@@ -1398,10 +1670,10 @@ export default function GuardianDashboard() {
 
         <section className="intelligence-strip" aria-label="System capabilities">
           <div className="intelligence-intro">
-            <span className="eyebrow"><Zap size={14} /> AEGIS FUSION CORE</span>
+            <span className="eyebrow"><Zap size={14} /> MULTIMODAL FUSION CORE</span>
             <h2>Six signals. One explainable decision.</h2>
             <p>
-              A single blink never becomes an alarm. Aegis combines persistence,
+              A single blink never becomes an alarm. The system combines persistence,
               frequency, concurrence, and your personal baseline before escalating.
             </p>
           </div>
@@ -1424,7 +1696,7 @@ export default function GuardianDashboard() {
         </section>
 
         <footer>
-          <div><BrandMark /><span><strong>Aegis Drive</strong><small>Open, local, privacy-first driver assistance</small></span></div>
+          <div><BrandMark /><span><strong>Driver Drowsiness &amp; Distraction Detection System</strong><small>Open, local, privacy-first driver assistance</small></span></div>
           <p>
             Research prototype — not a substitute for rest, responsible driving, or certified vehicle safety systems.
           </p>
@@ -1448,11 +1720,30 @@ export default function GuardianDashboard() {
                 <i />
               </label>
               <label className="toggle-row">
-                <span><Siren size={17} /><span><strong>Voice guidance</strong><small>Spoken critical instructions</small></span></span>
+                <span><Siren size={17} /><span><strong>Voice guidance</strong><small>Context-aware warnings for 12 conditions</small></span></span>
                 <input type="checkbox" checked={settings.voice} onChange={(event) => setSettings((current) => ({ ...current, voice: event.target.checked }))} />
                 <i />
               </label>
-              <button className="drawer-action" onClick={() => soundAlert(true, true)}><Volume2 size={15} /> Test critical alert</button>
+              <div className="language-control">
+                <label htmlFor="voice-language"><Languages size={17} /><span><strong>Warning language</strong><small>Natural voice selected automatically</small></span></label>
+                <select
+                  id="voice-language"
+                  value={settings.voiceLanguage}
+                  onChange={(event) => setSettings((current) => ({ ...current, voiceLanguage: event.target.value as VoiceLanguage }))}
+                >
+                  {VOICE_LANGUAGES.map((language) => (
+                    <option key={language.code} value={language.code}>{language.label} — {language.nativeLabel}</option>
+                  ))}
+                </select>
+                <div className={`voice-status ${selectedVoice ? "voice-found" : "voice-fallback"}`}>
+                  <span className="status-dot" />
+                  <span>
+                    <strong>{selectedVoice?.name || "System fallback voice"}</strong>
+                    <small>{selectedVoice ? `Best installed ${VOICE_LANGUAGES.find((item) => item.code === settings.voiceLanguage)?.label} voice` : "Install this language in your device speech settings for the best result"}</small>
+                  </span>
+                </div>
+              </div>
+              <button className="drawer-action" onClick={() => speakAlert("warning", true)}><Volume2 size={15} /> Preview selected voice</button>
             </div>
 
             <div className="settings-section">
@@ -1503,7 +1794,7 @@ export default function GuardianDashboard() {
               <div><span>1</span><div><strong>Mount the camera</strong><p>Place your laptop or webcam near eye level, centered within roughly 45–75 cm.</p></div></div>
               <div><span>2</span><div><strong>Use even light</strong><p>Avoid a bright window behind you. Your eyes and jawline should be visible.</p></div></div>
               <div><span>3</span><div><strong>Calibrate naturally</strong><p>Look forward for five seconds without exaggerating your expression.</p></div></div>
-              <div><span>4</span><div><strong>React safely</strong><p>If Aegis warns you, pull over when safe. Caffeine and loud music do not replace sleep.</p></div></div>
+              <div><span>4</span><div><strong>React safely</strong><p>If the system warns you, pull over when safe. Caffeine and loud music do not replace sleep.</p></div></div>
             </div>
             <div className="guide-warning">
               <AlertTriangle size={20} />
