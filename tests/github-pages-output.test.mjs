@@ -15,7 +15,12 @@ test("GitHub Pages export has correct project paths and offline models", async (
     access(new URL("models/efficientdet_lite0.tflite", output)),
     access(new URL("wasm/vision_wasm_internal.wasm", output)),
     access(new URL(".nojekyll", output)),
+    // The installable, offline-capable shell.
+    access(new URL("manifest.webmanifest", output)),
+    access(new URL("sw.js", output)),
   ]);
+
+  assert.match(html, /rel="manifest"/, "the page must advertise its manifest");
 
   const chunksDirectory = new URL("_next/static/chunks/", output);
   const dashboardChunk = (await readdir(chunksDirectory)).find((name) =>
@@ -27,4 +32,9 @@ test("GitHub Pages export has correct project paths and offline models", async (
   assert.match(dashboardSource, /models\/face_landmarker\.task/);
   assert.match(dashboardSource, /models\/efficientdet_lite0\.tflite/);
   assert.match(dashboardSource, /\/wasm/);
+  assert.match(
+    dashboardSource,
+    /serviceWorker/,
+    "the bundle should register the offline cache",
+  );
 });

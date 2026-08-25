@@ -56,6 +56,9 @@ await Promise.all([
   access(resolve(clientDirectory, "models", "face_landmarker.task")),
   access(resolve(clientDirectory, "models", "efficientdet_lite0.tflite")),
   access(resolve(clientDirectory, "wasm", "vision_wasm_internal.wasm")),
+  // Without these the installed app cannot run offline.
+  access(resolve(clientDirectory, "manifest.webmanifest")),
+  access(resolve(clientDirectory, "sw.js")),
 ]);
 
 console.log("GitHub Pages static export is ready in dist/client.");

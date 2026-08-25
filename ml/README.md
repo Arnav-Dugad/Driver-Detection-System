@@ -11,6 +11,18 @@ The live browser app works without Python. This directory is for the formal mach
 - `feature_importance.csv`
 - `test_predictions.csv`
 
+## Getting the data out of the app
+
+You no longer have to build the CSV by hand. In the app open
+**Settings -> Research -> Record labeled windows** (off by default), pick a
+label, run a session, then export. The browser writes exactly the schema below,
+and `tests/features.test.mjs` asserts the two lists match by reading the
+`FEATURES` list in `train_fusion.py` directly, so the app and this pipeline
+cannot silently drift apart.
+
+The recorder captures numeric aggregates only. No image, video frame, face
+template, landmark set, or identity is written, and nothing is uploaded.
+
 ## CSV format
 
 Every row is one labeled temporal window. Required columns:
@@ -52,6 +64,25 @@ python ml\train_fusion.py --data path\to\your_labeled_windows.csv --output ml\ar
 
 Keep the raw consented research data outside Git. Commit only aggregate metrics and documentation unless every participant explicitly approved publication.
 
+## Score a trained model in the browser
+
+`export_browser_model.py` flattens the trained forest into a compact JSON that
+`lib/detection/learned.mjs` can walk directly, with no ONNX runtime and no
+server call:
+
+```powershell
+python ml\export_browser_model.py --model ml\artifacts\driver_fusion.joblib
+```
+
+The export subsamples the forest (`--max-trees`, default 60) to keep the payload
+small enough to ship to a phone. It also carries the training medians so the
+browser imputes missing features exactly the way training did.
+
+The deterministic engine in `lib/detection/core.mjs` stays the default and the
+fallback. A learned model can only nudge the blended score, never override
+obvious explainable evidence such as a two-second eye closure - a model trained
+on a classroom-sized dataset has not earned that authority.
+
 ## Recommended report tables
 
 - participants and recording conditions
@@ -64,3 +95,4 @@ Keep the raw consented research data outside Git. Commit only aggregate metrics 
 - alert latency for each event class
 - subgroup results and known failures
 - ablation comparison against EAR-only and no-calibration baselines
+- deterministic engine versus learned fusion on the same held-out participants

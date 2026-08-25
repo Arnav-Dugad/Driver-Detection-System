@@ -1,5 +1,21 @@
 # Improvement roadmap
 
+## Already shipped
+
+These were on this roadmap and are now implemented; the remaining stages assume
+them:
+
+- blendshape-fused eye closure and true 3D head pose from the transformation matrix
+- time-weighted P80 PERCLOS instead of sample counting
+- yawn-versus-speech discrimination by opening shape and duration
+- uncertainty-aware fusion that shows when the system does not know
+- driver-specific continual calibration, bounded so it cannot normalize fatigue
+- circadian and time-on-task context, bounded and individually labelled
+- counterfactual explanations in the interface
+- an installable PWA shell with an offline model cache
+- a consent-based numeric feature recorder feeding `ml/train_fusion.py` directly
+- an optional learned-fusion export scored in the browser without ONNX
+
 ## Stage 1 — strong college submission
 
 - Record consented non-driving sessions across at least 15–20 participants.
@@ -12,11 +28,11 @@
 ## Stage 2 — research-grade prototype
 
 - Train a temporal model on sequences instead of only aggregated windows.
-- Distill the learned fusion model to ONNX for browser inference.
-- Add uncertainty calibration and show when the system does not know.
+- Calibrate the confidence estimate against measured error, not just its inputs.
 - Evaluate subgroup performance across lighting, glasses, skin tones, facial hair, and camera quality.
 - Add low-light and infrared profiles.
-- Run ablation studies to quantify the value of PERCLOS, gaze, head pose, yawns, and phone detection.
+- Run ablation studies to quantify the value of PERCLOS, gaze, head pose, yawns, blendshape fusion, and phone detection.
+- Validate the circadian term against measured outcomes rather than published windows.
 
 ## Stage 3 — simulator study
 
@@ -31,8 +47,7 @@
 - Move inference to a dedicated camera computer or vehicle-grade edge device.
 - Add watchdog processes, health checks, thermal limits, and graceful degradation.
 - Sign model files and releases.
-- Add a PWA shell and offline asset cache.
-- Design a vibration alert through a safe dedicated device.
+- Design a vibration alert through a safe dedicated device rather than the phone itself.
 - Add fleet analytics based on anonymous events, never raw faces.
 - Commission accessibility, privacy, cybersecurity, and automotive safety reviews.
 

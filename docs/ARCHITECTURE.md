@@ -4,20 +4,28 @@
 
 ```text
 Webcam frame (memory only)
-  ├─ MediaPipe Face Landmarker → 478 normalized face + iris points
-  │    ├─ EAR → blink and microsleep duration
-  │    ├─ MAR → yawn state
-  │    ├─ iris ratio → gaze deviation
-  │    └─ nose / eyes / cheeks / chin → head yaw and pitch
+  ├─ MediaPipe Face Landmarker
+  │    ├─ 478 face + iris points
+  │    │    ├─ EAR ──────────────┐
+  │    │    ├─ MAR → yawn shape  │
+  │    │    └─ iris ratio → gaze │
+  │    ├─ 52 blendshapes         ├─→ fused eye closure (0..1)
+  │    │    ├─ eyeBlink L/R ─────┘
+  │    │    ├─ jawOpen
+  │    │    └─ eyeLook in/out/up/down
+  │    └─ 4x4 transformation matrix → true yaw / pitch / roll
   └─ EfficientDet-Lite0 → phone presence
              ↓
-       Personal baseline
+  Personal baseline (calibrated, then slowly adapted within ±15%)
              ↓
-  Rolling temporal state (up to 60 seconds)
+  Rolling temporal state (time-weighted, up to 60 seconds)
              ↓
-  Explainable risk fusion + concurrency bonus
+  Signal confidence  ──┐
+  Circadian context  ──┼─→ explainable risk fusion + concurrency bonus
+  Persistence ramps  ──┘
              ↓
-  UI state, local alerts, numeric event journal
+  UI state, counterfactual explanation, local alerts,
+  numeric event journal, numeric replay buffer
 ```
 
 ## Why hybrid intelligence
@@ -48,7 +56,22 @@ MAR compares vertical inner-lip distance with mouth width. It is evaluated over 
 
 ### PERCLOS
 
-PERCLOS is the proportion of recent samples classified as eye-closed. The system uses a rolling 60-second window in the live interface.
+PERCLOS follows the P80 definition: the proportion of **time** the eyes are at
+least 80% closed across a rolling 60-second window. Each sample is weighted by
+the wall-clock interval it represents rather than counted equally.
+
+This matters more than it sounds. Counting samples makes the measure a function
+of frame rate, and frame rate degrades hardest during long closures - exactly
+the events PERCLOS exists to catch - so a sample-counted PERCLOS systematically
+understates fatigue on slower devices. A stalled loop is capped so one sample
+cannot claim credit for a long gap.
+
+### Yawns
+
+A mouth-opening threshold fires on ordinary conversation. Yawns are instead
+identified by shape: a sustained opening held for at least 1.2 seconds with low
+oscillation, optionally corroborated by eye narrowing. Speech reaches a similar
+peak opening but reverses direction several times a second and never holds.
 
 ### Head and gaze deviation
 
@@ -60,13 +83,40 @@ Every signal has a persistence ramp. For example, an eye closure below ordinary 
 
 The displayed score is exponentially smoothed to avoid flicker. Alert cooldowns prevent repeated sound on every frame.
 
+### Confidence and context
+
+Two further terms shape the final score:
+
+- **Signal confidence** (0..1) is derived from brightness, contrast, frame rate,
+  head angle, and left/right blink asymmetry. It attenuates risk across a floor
+  rather than to zero, and the interface reports it directly. Claiming a
+  confident score from a frame the system cannot actually read is worse than
+  admitting the gap.
+- **Circadian context** applies a bounded multiplier of at most +18% from time of
+  day and time on task. It nudges existing evidence toward an earlier alert; it
+  cannot manufacture one.
+
+### Counterfactual explanation
+
+Because the fusion keeps its per-signal contributions, the interface can state
+what would actually change the outcome: "Risk would fall from 68 to 31 if your
+gaze returned to the road." This is the same arithmetic the score is built from,
+re-run with the largest contributor removed.
+
 ## Performance
 
 - face landmarking runs on new video frames;
 - object detection runs less frequently because it is more expensive;
 - React state is updated from compact numeric telemetry, never image buffers;
 - the canvas overlay is cleared and redrawn without retaining frames;
-- precision, balanced, and eco modes change phone-detection cadence; precision is the default.
+- precision, balanced, and eco modes change capture resolution, landmark frame
+  pacing, phone-detection cadence, and overlay redraw rate; precision is the
+  default, and eco exists so a phone can monitor a long drive without thermal
+  throttling;
+- React state is published at about 10 Hz while the detection maths still runs on
+  every frame, so the interface never re-renders at camera frame rate;
+- the screen wake lock is held for the session and re-acquired whenever the page
+  returns to the foreground, because a sleeping phone stops the render loop.
 
 ## Security and privacy boundary
 

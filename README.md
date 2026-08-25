@@ -8,24 +8,42 @@ There are no API keys, paid services, subscriptions, accounts, or cloud inferenc
 
 ## What is included
 
-- 478-point face and iris landmark detection with MediaPipe
-- Eye Aspect Ratio (EAR) for blinks and prolonged closure
-- rolling 60-second PERCLOS fatigue measurement
-- Mouth Aspect Ratio (MAR) and temporal yawn detection
-- personalized gaze and head-pose baselines
-- clean, mirrored facial tracking points over the live preview
+**Detection**
+
+- 478-point face and iris landmarks, 52 blendshapes, and a 3D pose matrix from MediaPipe
+- eye closure fused from geometric EAR and the learned blink blendshapes, so glasses and head angle degrade it far less
+- true head yaw, pitch, and roll from a matrix decomposition, independent of how close you sit to the camera
+- time-weighted PERCLOS on the standard P80 definition, so the measure does not drift with frame rate
+- yawn detection by shape and duration rather than mouth opening alone, which rejects ordinary conversation
+- per-frame confidence estimation: when the system cannot see well, it says so instead of guessing
+- circadian and time-on-task context, bounded so it can never manufacture an alert
+- a baseline that adapts to posture drift, clamped so it can never normalize a drowsy face
 - EfficientDet-Lite0 phone detection
 - automatic low-light and obstructed-camera warnings
 - multi-signal temporal risk fusion with concurrency escalation
 - five-second personal calibration
+
+**Interface**
+
+- counterfactual explanations: "Risk would fall from 68 to 31 if your gaze returned to the road"
+- a dedicated full-screen **Drive Mode** for a phone on a mount, with a screen wake lock so the session survives
 - context-aware voice alerts for eye closure, PERCLOS, yawning, gaze, head pose, phone use, driver visibility, escalating risk, and recovery
 - natural multilingual speech in English, Hindi, Kannada, Marathi, Tamil, and Telugu
+- vibration alerts for a noisy cabin or a muted phone
+- one-tap five-minute snooze after a false alarm
+- a session history and trends view, including your own time-of-day risk pattern
 - camera-hidden privacy display that keeps detection active
+- installable as an app, and fully functional offline once the models are cached
+- keyboard shortcuts throughout, and screen-reader announcements for risk changes
 - synthetic demo mode for presentations without a camera
-- local session journal and privacy-safe JSON reports
-- clean responsive interface, light and dark modes, fullscreen camera, keyboard focus, and mobile-safe controls
-- deterministic unit tests for the signal-processing and risk logic
-- an optional subject-aware training pipeline under `ml/`
+- light and dark modes, fullscreen camera, and a layout built for phones as well as desktops
+
+**Research**
+
+- privacy-safe JSON reports including a 60-second numeric replay buffer
+- an opt-in labeled-window recorder that exports CSV straight into the training pipeline
+- an optional subject-aware training, evaluation, and browser-export pipeline under `ml/`
+- deterministic unit tests for every signal-processing and risk decision
 
 ## Quick start — Windows
 
@@ -74,6 +92,24 @@ Open [http://localhost:3000](http://localhost:3000) in the latest Chrome or Edge
 5. Use **Demo** instead when presenting without a webcam.
 6. Press **End session** when finished. A numeric summary is stored only in this browser.
 
+On a phone, press the gauge icon to enter **Drive Mode**: one large risk number,
+one large stop button, and a screen wake lock so monitoring does not stop when
+the display would normally sleep.
+
+### Keyboard shortcuts
+
+| Key | Action |
+| --- | --- |
+| `Space` | Start or end a session |
+| `V` | Toggle Drive Mode |
+| `C` | Recalibrate |
+| `D` | Demo mode |
+| `S` | Snooze alerts for five minutes |
+| `M` | Mute sound and voice |
+| `F` | Fullscreen |
+| `H` | Session history |
+| `Esc` | Close any panel |
+
 For macOS and Linux, the commands are the same in Terminal. A more detailed beginner guide is in [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md).
 
 ### Choose a warning language
@@ -100,7 +136,8 @@ This design is intentionally explainable: the UI identifies the primary signal d
 ```bash
 npm run dev       # local development at http://localhost:3000
 npm run lint      # code-quality and accessibility rules
-npm run test      # signal-processing and rendered-output tests
+npm run test      # signal, schema, interface, and rendered-output tests
+npm run test:unit # fast pure-logic tests, no build required
 npm run build     # production build
 npm run verify    # lint + tests + production build
 npm run build:pages        # static GitHub Pages build
@@ -111,19 +148,34 @@ npm run deploy:cloudflare  # build and deploy to your Cloudflare account
 
 Cloudflare Workers is the recommended host for the full application. A ready-to-run GitHub Pages workflow is also included as a static fallback. Follow the noob-friendly instructions in [docs/HOSTING_GUIDE.md](docs/HOSTING_GUIDE.md).
 
+## Install it as an app
+
+The hosted site is an installable PWA. On Android or desktop Chrome, choose
+**Install** from the browser menu; on iOS Safari, use **Share -> Add to Home
+Screen**. After one successful session the models are cached, so the app keeps
+working with no network at all - which is what a fully on-device system should
+do.
+
 ## Project structure
 
 ```text
 app/
   GuardianDashboard.tsx    live vision loop, interface, alerts, session logic
+  DriveMode.tsx            full-screen glanceable view for a mounted phone
+  SessionHistory.tsx       local session journal and trends
+  hooks.ts                 wake lock, page visibility, shortcuts, haptics
+  sessionStore.ts          numeric-only local session journal
   globals.css              minimal responsive visual system
 lib/detection/
-  core.mjs                 tested geometry, calibration, PERCLOS, risk fusion
+  core.mjs                 tested geometry, pose, calibration, PERCLOS, risk fusion
+  features.mjs             the 13-feature window ml/train_fusion.py consumes
+  learned.mjs              optional in-browser scoring of a trained model
 public/models/             bundled MediaPipe and EfficientDet model weights
 public/wasm/               bundled MediaPipe browser runtime
+public/sw.js               offline shell and model cache
 ml/                        optional subject-aware training/evaluation pipeline
 docs/                      setup, architecture, safety, and presentation guides
-tests/                     deterministic unit and server-render tests
+tests/                     deterministic unit, schema, and server-render tests
 ```
 
 ## Privacy
@@ -131,8 +183,40 @@ tests/                     deterministic unit and server-render tests
 - Webcam frames are read in browser memory and are not uploaded.
 - No video frame, photo, face template, or biometric identity is saved.
 - Session history contains only numeric counts, events, duration, and risk state.
-- Session history uses browser `localStorage` and can be cleared with browser site-data controls.
-- Exported reports contain no image or video data.
+- Session history uses browser `localStorage`, is visible under **Your sessions**,
+  and can be cleared from that screen or with browser site-data controls.
+- Exported reports contain no image or video data. They include a 60-second
+  buffer of numeric measurements so an alert can be reviewed after the fact.
+- The offline cache stores only this project's own code and model files.
+
+### About the research recorder
+
+Settings contains an opt-in **Record labeled windows** switch. It is off by
+default and does nothing unless you turn it on.
+
+When enabled, it writes one row per second containing the thirteen numeric
+aggregates listed in `ml/train_fusion.py` (means, minima, rates, and deviations),
+plus a randomly generated local tag used only to keep one person's data inside
+one train/test split. It captures **no image, video frame, face template,
+landmark set, or identity**, and it transmits nothing: the CSV is a file you
+download yourself. Discard captured windows at any time from the same panel.
+
+## Closing the loop with the training pipeline
+
+The app emits exactly the feature schema the Python pipeline reads, and a test
+asserts the two lists match so they cannot silently drift apart.
+
+```bash
+# 1. Enable "Record labeled windows" in Settings, tag each window, export CSV.
+# 2. Train with participant-safe splits:
+python ml/train_fusion.py --data your-export.csv
+# 3. Optionally export the trained model for in-browser scoring:
+python ml/export_browser_model.py --model ml/artifacts/driver_fusion.joblib
+```
+
+The deterministic engine remains the default and the fallback. A learned model
+can only ever nudge the score, never override obvious explainable evidence such
+as a two-second eye closure.
 
 ## Accuracy and honest project claims
 
@@ -173,12 +257,9 @@ Confirm Node 22+ with `node --version`, delete only the project’s `node_module
 
 ## Good next upgrades
 
-- add a consent-based feature recorder and manual labeling view
 - benchmark across multiple public datasets with subject-independent splits
-- distill the temporal fusion model to ONNX for learned browser inference
 - add steering-behavior or lane-position signals from recorded simulator data
 - connect a free Bluetooth vibration device through Web Bluetooth
-- package the interface as an installable PWA
 - create a low-light infrared camera profile
 - validate every multilingual alert with native speakers and accessibility testing
 - evaluate alert timing in a driving simulator with ethics approval

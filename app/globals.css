@@ -57,7 +57,7 @@ html {
 }
 
 body {
-  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   background: var(--background);
   color: var(--text);
@@ -78,7 +78,7 @@ input:focus-visible {
 }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -362,6 +362,7 @@ input:focus-visible {
   inset: 0;
   width: 100%;
   height: 100%;
+  object-fit: cover;
   pointer-events: none;
   transform: scaleX(-1);
 }
@@ -1121,7 +1122,7 @@ footer p { margin: 0; font-size: 11px; }
 .guide-modal {
   overflow-y: auto;
   width: min(470px, 100%);
-  max-height: min(720px, calc(100vh - 40px));
+  max-height: min(720px, calc(100dvh - 40px));
   padding: 20px;
   border-radius: 22px;
   background: var(--surface);
@@ -1193,8 +1194,11 @@ footer p { margin: 0; font-size: 11px; }
   .stop-button { min-height: 40px; padding: 0 11px; font-size: 11px; }
   .content { padding: 12px; }
   .cockpit-grid,
-  .right-rail,
   .analytics-grid { grid-template-columns: 1fr; gap: 12px; }
+  .right-rail { display: contents; }
+  .risk-panel { order: 1; }
+  .camera-panel { order: 2; }
+  .metric-grid { order: 3; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .panel { border-radius: 18px; }
   .camera-panel { padding: 10px; }
   .panel-heading { padding-bottom: 9px; }
@@ -1225,7 +1229,7 @@ footer p { margin: 0; font-size: 11px; }
   .settings-drawer { padding-top: max(14px, env(safe-area-inset-top)); }
   .modal-backdrop { align-items: flex-end; padding: 8px; }
   .guide-modal {
-    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
     border-radius: 22px;
     padding-bottom: calc(18px + env(safe-area-inset-bottom));
   }
@@ -1246,4 +1250,379 @@ footer p { margin: 0; font-size: 11px; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition-duration: 0.001ms !important; }
+}
+
+/* --- Accessibility ------------------------------------------------------ */
+
+/* Announces risk transitions to screen readers without altering the layout. */
+.sr-live {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* --- Risk panel additions ---------------------------------------------- */
+
+.counterfactual {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.confidence-chip.is-unsure {
+  background: var(--warning-bg);
+  color: var(--amber);
+}
+
+.break-nudge {
+  display: flex;
+  align-items: center;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 600;
+  gap: 7px;
+}
+
+.snooze-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 36px;
+  margin-top: 10px;
+  border-radius: 10px;
+  background: var(--control);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 7px;
+}
+
+.snooze-button:hover { background: var(--hover); }
+.snooze-button.is-active { color: var(--blue); }
+
+.drawer-action.danger { color: var(--danger); }
+.drawer-action:disabled { cursor: not-allowed; opacity: 0.45; }
+.consent-note { align-items: flex-start; line-height: 1.5; }
+
+/* --- Drive mode --------------------------------------------------------- */
+
+/*
+ * The video element stays mounted so the detection loop keeps receiving
+ * frames, but it is never shown: a driver watching themselves is the exact
+ * failure this project exists to prevent.
+ */
+.drive-video-host {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.drive-mode {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  padding: max(12px, env(safe-area-inset-top)) 16px
+    calc(16px + env(safe-area-inset-bottom));
+  background: #08090c;
+  color: #f5f5f7;
+  transition: background 320ms ease;
+}
+
+.drive-mode.state-caution { background: #12100a; }
+.drive-mode.state-warning { background: #1a1206; }
+.drive-mode.state-danger {
+  background: #24080a;
+  animation: drive-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes drive-pulse {
+  0%, 100% { background: #24080a; }
+  50% { background: #3a0d10; }
+}
+
+.drive-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.drive-clock,
+.drive-badges {
+  display: inline-flex;
+  align-items: center;
+  color: rgba(245, 245, 247, 0.55);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  gap: 6px;
+}
+
+.drive-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.drive-exit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+  color: inherit;
+  cursor: pointer;
+}
+
+.drive-core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.drive-caption {
+  margin: 0;
+  color: rgba(245, 245, 247, 0.45);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.drive-risk {
+  display: block;
+  font-size: clamp(96px, 34vw, 200px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.drive-status {
+  margin: 6px 0 0;
+  font-size: clamp(22px, 6vw, 34px);
+  font-weight: 650;
+}
+
+.drive-action {
+  margin: 4px 0 0;
+  color: rgba(245, 245, 247, 0.62);
+  font-size: clamp(14px, 4vw, 18px);
+}
+
+.state-caution .drive-status { color: #ffb340; }
+.state-warning .drive-status { color: #ff9f0a; }
+.state-danger .drive-status { color: #ff6961; }
+.state-focused .drive-status { color: #30d158; }
+
+.drive-notes {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding-bottom: 14px;
+  text-align: center;
+}
+
+.drive-note {
+  margin: 0;
+  color: rgba(245, 245, 247, 0.8);
+  font-size: 13px;
+}
+
+.drive-note.subtle { color: rgba(245, 245, 247, 0.45); font-size: 12px; }
+
+/* Both targets sit in the bottom third, within one thumb's reach. */
+.drive-actions {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.4fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.drive-snooze,
+.drive-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 68px;
+  border-radius: 18px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 650;
+  gap: 9px;
+}
+
+.drive-snooze {
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 245, 247, 0.75);
+  font-size: 11px;
+  gap: 3px;
+}
+
+.drive-snooze.is-active { color: #0a84ff; }
+
+.drive-stop {
+  background: #f5f5f7;
+  color: #08090c;
+}
+
+.drive-stop:active { transform: scale(0.985); }
+
+@media (min-width: 760px) {
+  .drive-mode { padding-inline: max(24px, calc((100vw - 720px) / 2)); }
+}
+
+/* --- Session history ---------------------------------------------------- */
+
+.history-modal {
+  display: flex;
+  overflow-y: auto;
+  width: min(460px, 100%);
+  max-height: min(760px, calc(100dvh - 40px));
+  flex-direction: column;
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: var(--card-shadow);
+  gap: 14px;
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+}
+
+.history-trends {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  text-align: center;
+}
+
+.history-trends div {
+  padding: 11px 6px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.history-trends strong {
+  display: block;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.history-trends span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.history-insight {
+  margin: 0;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.history-insight strong { color: var(--text); }
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.history-row strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.history-row small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.history-counts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  color: var(--muted);
+  font-size: 10px;
+  gap: 2px;
+}
+
+.history-peak {
+  min-width: 38px;
+  padding: 5px 0;
+  border-radius: 9px;
+  background: var(--track);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  text-align: center;
+}
+
+.history-peak.tone-caution { background: var(--warning-bg); color: var(--amber); }
+.history-peak.tone-warning { background: var(--warning-bg); color: var(--amber); }
+.history-peak.tone-danger { background: var(--danger-bg); color: var(--danger); }
+
+.history-empty {
+  padding: 34px 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.history-empty strong { display: block; color: var(--text); font-size: 14px; }
+.history-empty p { margin: 6px 0 0; font-size: 12px; }
+
+.history-privacy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+@media (max-width: 470px) {
+  .history-trends { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .drive-risk { font-size: clamp(84px, 32vw, 150px); }
 }

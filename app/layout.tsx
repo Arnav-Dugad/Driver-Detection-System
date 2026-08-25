@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -23,6 +23,7 @@ const description =
   "A free, privacy-first driver monitoring research system with on-device drowsiness, gaze, head pose, yawn, PERCLOS, phone detection, and multilingual voice warnings.";
 const socialImage = new URL("og.png", metadataBase).toString();
 const favicon = new URL("favicon.svg", metadataBase).toString();
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
 export const metadata: Metadata = {
   metadataBase,
@@ -56,7 +57,27 @@ export const metadata: Metadata = {
   icons: {
     icon: favicon,
     shortcut: favicon,
+    apple: favicon,
   },
+  manifest: `${basePath}/manifest.webmanifest`,
+  appleWebApp: {
+    capable: true,
+    title: "Aegis Drive",
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: { telephone: false },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // The interface is glanceable by design; zooming stays available, but the
+  // layout is never relied on being scaled.
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f2f2f4" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0b0d" },
+  ],
 };
 
 export default function RootLayout({

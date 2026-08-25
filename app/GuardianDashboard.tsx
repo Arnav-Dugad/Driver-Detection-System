@@ -3,6 +3,7 @@
 import {
   Activity,
   AlertTriangle,
+  BellOff,
   Camera,
   CameraOff,
   Check,
@@ -10,7 +11,9 @@ import {
   Crosshair,
   Download,
   Eye,
+  FlaskConical,
   Gauge,
+  History,
   Info,
   Languages,
   LockKeyhole,
@@ -25,8 +28,11 @@ import {
   Smartphone,
   Square,
   Sun,
+  SwitchCamera,
+  Timer,
   Volume2,
   X,
+  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -39,12 +45,29 @@ import {
   buildCalibration,
   calculatePerclos,
   calculateRisk,
+  circadianRisk,
   classifyCameraQuality,
   classifySignals,
   clamp,
+  detectYawn,
+  estimateSignalConfidence,
+  explainRisk,
   extractFaceSignals,
   formatDuration,
+  updateBaseline,
 } from "@/lib/detection/core.mjs";
+import type { FaceSignals } from "@/lib/detection/core.d.mts";
+import { buildFeatureCsv, buildFeatureWindow } from "@/lib/detection/features.mjs";
+import DriveMode from "./DriveMode";
+import SessionHistory from "./SessionHistory";
+import { useKeyboardShortcuts, usePageVisible, useWakeLock, vibrate } from "./hooks";
+import {
+  type StoredSession,
+  clearSessions,
+  readSessions,
+  saveSession,
+  subjectId,
+} from "./sessionStore";
 
 type Phase = "idle" | "loading" | "calibrating" | "live" | "demo" | "paused";
 type RiskState = "focused" | "caution" | "warning" | "danger";
@@ -73,7 +96,31 @@ type Baseline = {
   mar: number;
   yaw: number;
   pitch: number;
+  roll: number;
   gaze: number;
+};
+
+type Counterfactual = {
+  key: string;
+  label: string;
+  from: number;
+  to: number;
+  delta: number;
+  sentence: string;
+};
+
+/** One numeric frame of the replay buffer. No image data is ever retained. */
+type TelemetrySample = {
+  time: number;
+  ear: number;
+  mar: number;
+  closure: number;
+  yaw: number;
+  pitch: number;
+  gaze: number;
+  risk: number;
+  phoneVisible: boolean;
+  faceFound: boolean;
 };
 
 type Telemetry = {
@@ -82,7 +129,10 @@ type Telemetry = {
   perclos: number;
   yaw: number;
   pitch: number;
+  roll: number;
   gaze: number;
+  closure: number;
+  confidence: number;
   risk: number;
   state: RiskState;
   primary: string;
@@ -114,10 +164,20 @@ type Settings = {
   sound: boolean;
   voice: boolean;
   voiceLanguage: VoiceLanguage;
+  haptics: boolean;
   phoneDetection: boolean;
   privacyMode: boolean;
   sensitivity: number;
   performance: "balanced" | "precision" | "eco";
+  /** Opt-in, off by default. Records numeric feature windows only. */
+  research: boolean;
+};
+
+/** One labeled numeric window queued for research export. */
+type LabeledWindow = {
+  subjectId: string;
+  label: string;
+  features: Record<string, number>;
 };
 
 const VOICE_LANGUAGES: Array<{ code: VoiceLanguage; label: string; nativeLabel: string }> = [
@@ -254,6 +314,32 @@ const VOICE_COOLDOWNS: Record<VoiceAlertKind, number> = {
 
 const ASSET_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
+/**
+ * Performance profiles govern capture resolution, how often the expensive
+ * object detector runs, and how often the overlay is redrawn. Eco exists so a
+ * phone can monitor a long drive without thermal throttling or draining flat.
+ */
+const PERFORMANCE_PROFILES = {
+  eco: { width: 640, height: 480, frameRate: 20, phoneCadenceMs: 1_100, minFrameMs: 66, overlayEvery: 3 },
+  balanced: { width: 960, height: 540, frameRate: 30, phoneCadenceMs: 760, minFrameMs: 40, overlayEvery: 2 },
+  precision: { width: 1280, height: 720, frameRate: 30, phoneCadenceMs: 450, minFrameMs: 0, overlayEvery: 1 },
+} as const;
+
+/**
+ * Telemetry drives React state, so it is published at a readable rate rather
+ * than at camera frame rate. The detection maths still runs on every frame -
+ * only the re-render is throttled.
+ */
+const TELEMETRY_INTERVAL_MS = 100;
+
+/** Numeric replay buffer length. Sixty seconds of numbers, never frames. */
+const REPLAY_WINDOW_MS = 60_000;
+
+/** How long a one-tap snooze silences alerts. */
+const SNOOZE_MS = 5 * 60_000;
+
+const RESEARCH_LABELS = ["alert", "drowsy", "distracted"] as const;
+
 function selectNaturalVoice(voices: SpeechSynthesisVoice[], language: VoiceLanguage) {
   const exactLanguage = language.toLowerCase();
   const languageRoot = exactLanguage.split("-")[0];
@@ -322,8 +408,11 @@ const initialTelemetry: Telemetry = {
   mar: DEFAULT_BASELINE.mar,
   perclos: 0,
   yaw: 0,
-  pitch: DEFAULT_BASELINE.pitch,
+  pitch: 0,
+  roll: 0,
   gaze: 0.5,
+  closure: 0,
+  confidence: 1,
   risk: 0,
   state: "focused",
   primary: "eyes",
@@ -474,11 +563,25 @@ export default function GuardianDashboard() {
     sound: true,
     voice: true,
     voiceLanguage: "en-IN",
+    haptics: true,
     phoneDetection: true,
     privacyMode: false,
     sensitivity: 0.62,
     performance: "precision",
+    research: false,
   });
+  const [driveMode, setDriveMode] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [sessions, setSessions] = useState<StoredSession[]>([]);
+  const [counterfactual, setCounterfactual] = useState<Counterfactual | null>(null);
+  const [snoozeUntil, setSnoozeUntil] = useState(0);
+  const [snoozeRemaining, setSnoozeRemaining] = useState(0);
+  const [breakDue, setBreakDue] = useState(false);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [cameraId, setCameraId] = useState<string | null>(null);
+  const [recordedWindows, setRecordedWindows] = useState(0);
+  const [researchLabel, setResearchLabel] =
+    useState<(typeof RESEARCH_LABELS)[number]>("alert");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -489,8 +592,27 @@ export default function GuardianDashboard() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const startedAtRef = useRef(0);
   const calibrationStartedRef = useRef(0);
-  const calibrationSamplesRef = useRef<Array<Record<string, number>>>([]);
-  const eyeSamplesRef = useRef<Array<{ time: number; closed: boolean }>>([]);
+  const calibrationSamplesRef = useRef<FaceSignals[]>([]);
+  // Closure is a 0..1 fraction so PERCLOS can be integrated over wall-clock
+  // time rather than counted per frame.
+  const closureSamplesRef = useRef<Array<{ time: number; closure: number }>>([]);
+  const marHistoryRef = useRef<Array<{ time: number; mar: number; closure: number }>>([]);
+  const telemetryBufferRef = useRef<TelemetrySample[]>([]);
+  const blinkTimesRef = useRef<number[]>([]);
+  // The live baseline lives in a ref so adaptive drift never restarts the
+  // render loop; React state mirrors it only for display.
+  const baselineRef = useRef<Baseline>(DEFAULT_BASELINE);
+  const baselineAnchorRef = useRef<Baseline>(DEFAULT_BASELINE);
+  const confidenceRef = useRef(1);
+  const frameSampleRef = useRef({ brightness: 0.5, contrast: 0.2 });
+  const snoozeUntilRef = useRef(0);
+  const lastTelemetryAtRef = useRef(0);
+  const lastFeatureAtRef = useRef(0);
+  const labeledWindowsRef = useRef<LabeledWindow[]>([]);
+  const researchLabelRef = useRef<string>("alert");
+  const overlayFrameRef = useRef(0);
+  const lastFrameAtRef = useRef(0);
+  const yawnActiveRef = useRef(false);
   const recentYawnTimesRef = useRef<number[]>([]);
   const eyeClosedAtRef = useRef(0);
   const headAwayAtRef = useRef(0);
@@ -516,6 +638,7 @@ export default function GuardianDashboard() {
   const settingsRef = useRef(settings);
   const phaseRef = useRef<Phase>(phase);
   const frameCounterRef = useRef({ count: 0, started: 0, fps: 0 });
+  const riskStateRef = useRef<RiskState>("focused");
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -528,6 +651,32 @@ export default function GuardianDashboard() {
   useEffect(() => {
     statsRef.current = stats;
   }, [stats]);
+
+  useEffect(() => {
+    riskStateRef.current = telemetry.state;
+  }, [telemetry.state]);
+
+  useEffect(() => {
+    researchLabelRef.current = researchLabel;
+  }, [researchLabel]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setSessions(readSessions()));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  // Cache the shell and the on-device models so the app installs to a home
+  // screen and keeps working with no network at all.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator) || window.location.protocol === "http:") return;
+    const scope = `${ASSET_BASE_PATH}/`;
+    navigator.serviceWorker
+      .register(`${ASSET_BASE_PATH}/sw.js`, { scope })
+      .catch((registrationError) => {
+        // Offline support is an enhancement; monitoring must not depend on it.
+        console.warn("Offline cache unavailable.", registrationError);
+      });
+  }, []);
 
   useEffect(() => {
     let savedTheme: string | null = null;
@@ -749,7 +898,20 @@ export default function GuardianDashboard() {
 
   const resetRuntime = useCallback(() => {
     calibrationSamplesRef.current = [];
-    eyeSamplesRef.current = [];
+    closureSamplesRef.current = [];
+    marHistoryRef.current = [];
+    telemetryBufferRef.current = [];
+    blinkTimesRef.current = [];
+    baselineRef.current = DEFAULT_BASELINE;
+    baselineAnchorRef.current = DEFAULT_BASELINE;
+    confidenceRef.current = 1;
+    frameSampleRef.current = { brightness: 0.5, contrast: 0.2 };
+    snoozeUntilRef.current = 0;
+    lastTelemetryAtRef.current = 0;
+    lastFeatureAtRef.current = 0;
+    overlayFrameRef.current = 0;
+    lastFrameAtRef.current = 0;
+    yawnActiveRef.current = false;
     recentYawnTimesRef.current = [];
     eyeClosedAtRef.current = 0;
     headAwayAtRef.current = 0;
@@ -775,13 +937,17 @@ export default function GuardianDashboard() {
     setTelemetry(initialTelemetry);
     setCameraQuality({ state: "clear", brightness: 1 });
     setSessionSeconds(0);
+    setBaseline(DEFAULT_BASELINE);
+    setCounterfactual(null);
+    setSnoozeUntil(0);
+    setBreakDue(false);
     const overlay = overlayCanvasRef.current?.getContext("2d");
     if (overlay && overlayCanvasRef.current) {
       overlay.clearRect(0, 0, overlayCanvasRef.current.width, overlayCanvasRef.current.height);
     }
   }, []);
 
-  const startCamera = useCallback(async () => {
+  const startCamera = useCallback(async (deviceId?: string) => {
     setError(null);
     resetRuntime();
     unlockAudio();
@@ -791,13 +957,14 @@ export default function GuardianDashboard() {
     }
     setPhase("loading");
     try {
+      const profile = PERFORMANCE_PROFILES[settingsRef.current.performance];
       const [stream] = await Promise.all([
         navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: "user",
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30, max: 30 },
+            ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" }),
+            width: { ideal: profile.width },
+            height: { ideal: profile.height },
+            frameRate: { ideal: profile.frameRate, max: profile.frameRate },
           },
           audio: false,
         }),
@@ -808,6 +975,12 @@ export default function GuardianDashboard() {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
+      setCameraId(stream.getVideoTracks()[0]?.getSettings().deviceId ?? deviceId ?? null);
+      // Labels are only exposed once permission has been granted.
+      void navigator.mediaDevices
+        .enumerateDevices()
+        .then((devices) => setCameras(devices.filter((device) => device.kind === "videoinput")))
+        .catch(() => setCameras([]));
       startedAtRef.current = performance.now();
       calibrationStartedRef.current = performance.now();
       setCalibrationProgress(0);
@@ -839,25 +1012,25 @@ export default function GuardianDashboard() {
   }, [pushEvent, resetRuntime, unlockAudio]);
 
   const stopSession = useCallback(() => {
-    const summary = {
-      endedAt: new Date().toISOString(),
-      durationSeconds: sessionSeconds,
-      mode: phase === "demo" ? "demo" : "camera",
-      stats: statsRef.current,
-      events,
-      privacy: "No camera frames were stored",
-    };
-    try {
-      const previous = JSON.parse(
-        localStorage.getItem("driver-detection-session-history") || "[]",
+    const buffer = telemetryBufferRef.current;
+    if (sessionSeconds > 5) {
+      setSessions(
+        saveSession({
+          id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+          endedAt: new Date().toISOString(),
+          durationSeconds: sessionSeconds,
+          mode: phase === "demo" ? "demo" : "camera",
+          stats: statsRef.current,
+          averageRisk: buffer.length
+            ? Math.round(
+                buffer.reduce((sum, sample) => sum + sample.risk, 0) / buffer.length,
+              )
+            : 0,
+          startHour: new Date(Date.now() - sessionSeconds * 1000).getHours(),
+        }),
       );
-      localStorage.setItem(
-        "driver-detection-session-history",
-        JSON.stringify([summary, ...previous].slice(0, 20)),
-      );
-    } catch {
-      // Local reporting is optional; monitoring must never depend on storage.
     }
+    setDriveMode(false);
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -873,7 +1046,7 @@ export default function GuardianDashboard() {
     cameraQualityRef.current = { state: "clear", brightness: 1 };
     setCameraQuality({ state: "clear", brightness: 1 });
     setCalibrationProgress(0);
-  }, [events, phase, sessionSeconds]);
+  }, [phase, sessionSeconds]);
 
   const recalibrate = useCallback(() => {
     if (phase !== "live") return;
@@ -896,6 +1069,18 @@ export default function GuardianDashboard() {
         events,
       },
       calibration: baseline,
+      // Sixty seconds of numeric measurements so any alert can be reviewed.
+      replay: telemetryBufferRef.current.map((sample) => ({
+        t: Math.round(sample.time - startedAtRef.current),
+        risk: sample.risk,
+        closure: Number(sample.closure.toFixed(3)),
+        mar: Number(sample.mar.toFixed(3)),
+        yaw: Number(sample.yaw.toFixed(3)),
+        pitch: Number(sample.pitch.toFixed(3)),
+        gaze: Number(sample.gaze.toFixed(3)),
+        phone: sample.phoneVisible,
+        face: sample.faceFound,
+      })),
       note: "Assistive research prototype. No images or video are included.",
     };
     const url = URL.createObjectURL(
@@ -907,6 +1092,70 @@ export default function GuardianDashboard() {
     anchor.click();
     URL.revokeObjectURL(url);
   }, [baseline, events, sessionSeconds, stats, telemetry.risk, telemetry.state]);
+
+  /**
+   * Re-bind the live stream whenever the video element is replaced.
+   *
+   * Entering or leaving drive mode swaps in a different <video>; without this
+   * the new element has no srcObject and the render loop stalls on a frame
+   * that never becomes ready.
+   */
+  const attachVideo = useCallback((element: HTMLVideoElement | null) => {
+    videoRef.current = element;
+    if (!element || !streamRef.current) return;
+    if (element.srcObject !== streamRef.current) {
+      element.srcObject = streamRef.current;
+      void element.play().catch(() => {
+        // Autoplay can be refused after a remount; the next gesture recovers it.
+      });
+    }
+  }, []);
+
+  const snoozeAlerts = useCallback(() => {
+    const until = performance.now() + SNOOZE_MS;
+    snoozeUntilRef.current = until;
+    setSnoozeUntil(until);
+    setSnoozeRemaining(SNOOZE_MS);
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    pushEvent("system", "Alerts snoozed", "Five minutes of quiet. Detection keeps running.", "low");
+  }, [pushEvent]);
+
+  const clearSnooze = useCallback(() => {
+    snoozeUntilRef.current = 0;
+    setSnoozeUntil(0);
+    setSnoozeRemaining(0);
+  }, []);
+
+  /** Cycle to the next camera without dropping the session state. */
+  const switchCamera = useCallback(() => {
+    if (cameras.length < 2) return;
+    const index = cameras.findIndex((device) => device.deviceId === cameraId);
+    const next = cameras[(index + 1) % cameras.length];
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    void startCamera(next.deviceId);
+  }, [cameraId, cameras, startCamera]);
+
+  /**
+   * Export the queued research windows as a CSV that `ml/train_fusion.py`
+   * reads without any reshaping. Numeric features only.
+   */
+  const exportResearchCsv = useCallback(() => {
+    const windows = labeledWindowsRef.current;
+    if (!windows.length) return;
+    const url = URL.createObjectURL(
+      new Blob([buildFeatureCsv(windows)], { type: "text/csv" }),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `driver-detection-windows-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const discardResearch = useCallback(() => {
+    labeledWindowsRef.current = [];
+    setRecordedWindows(0);
+  }, []);
 
   const drawTracker = useCallback(
     (landmarks: NormalizedLandmark[] | undefined) => {
@@ -924,7 +1173,7 @@ export default function GuardianDashboard() {
       context.clearRect(0, 0, width, height);
       if (!landmarks) return;
 
-      const color = telemetry.state === "danger" ? "#ff6b64" : "#74d9ff";
+      const color = riskStateRef.current === "danger" ? "#ff6b64" : "#74d9ff";
       context.save();
       context.fillStyle = color;
       context.shadowBlur = 5;
@@ -947,7 +1196,7 @@ export default function GuardianDashboard() {
       }
       context.restore();
     },
-    [telemetry.state],
+    [],
   );
 
   useEffect(() => {
@@ -969,21 +1218,34 @@ export default function GuardianDashboard() {
         frameId = requestAnimationFrame(processFrame);
         return;
       }
-      lastVideoTime = video.currentTime;
       const now = performance.now();
+      const profile = PERFORMANCE_PROFILES[settingsRef.current.performance];
+      // Eco and balanced skip frames outright rather than doing the full
+      // landmark pass on every one, which is what actually saves battery.
+      if (profile.minFrameMs && now - lastFrameAtRef.current < profile.minFrameMs) {
+        frameId = requestAnimationFrame(processFrame);
+        return;
+      }
+      lastFrameAtRef.current = now;
+      lastVideoTime = video.currentTime;
       let faceFound = false;
 
       try {
         const result = landmarker.detectForVideo(video, now);
         const landmarks = result.faceLandmarks[0];
         faceFound = Boolean(landmarks);
-        drawTracker(landmarks);
+        overlayFrameRef.current += 1;
+        if (overlayFrameRef.current % profile.overlayEvery === 0) drawTracker(landmarks);
 
         if (now - lastQualityCheckRef.current >= 1_200) {
           lastQualityCheckRef.current = now;
           if (!qualityCanvasRef.current) qualityCanvasRef.current = document.createElement("canvas");
           const sample = measureCameraFrame(video, qualityCanvasRef.current);
           if (sample) {
+            frameSampleRef.current = {
+              brightness: sample.brightness,
+              contrast: sample.contrast,
+            };
             const nextState = classifyCameraQuality({
               ...sample,
               faceFound,
@@ -1027,7 +1289,7 @@ export default function GuardianDashboard() {
         }
 
         if (settingsRef.current.phoneDetection && objectDetectorRef.current) {
-          const cadence = settingsRef.current.performance === "precision" ? 450 : 760;
+          const cadence = profile.phoneCadenceMs;
           if (now - lastObjectDetectionRef.current > cadence) {
             lastObjectDetectionRef.current = now;
             const detection = objectDetectorRef.current.detectForVideo(video, now);
@@ -1045,7 +1307,10 @@ export default function GuardianDashboard() {
         if (landmarks) {
           faceMissingAtRef.current = 0;
           eventFlagsRef.current.missing = false;
-          const signals = extractFaceSignals(landmarks);
+          const signals = extractFaceSignals(landmarks, {
+            matrix: result.facialTransformationMatrixes?.[0] ?? null,
+            blendshapes: result.faceBlendshapes?.[0] ?? null,
+          });
           if (signals) {
             if (phaseRef.current === "calibrating") {
               calibrationSamplesRef.current.push(signals);
@@ -1059,7 +1324,11 @@ export default function GuardianDashboard() {
                 state: "focused",
               }));
               if (progress >= 1) {
-                const learned = buildCalibration(calibrationSamplesRef.current);
+                const learned = buildCalibration(calibrationSamplesRef.current) as Baseline;
+                baselineRef.current = learned;
+                // The anchor is what drift is measured against, so it is kept
+                // at the originally calibrated values for the whole session.
+                baselineAnchorRef.current = learned;
                 setBaseline(learned);
                 setPhase("live");
                 pushEvent(
@@ -1071,14 +1340,40 @@ export default function GuardianDashboard() {
                 speakAlert("calibration");
               }
             } else {
+              const liveBaseline = baselineRef.current;
               const classified = classifySignals(
                 signals,
-                baseline,
+                liveBaseline,
                 settingsRef.current.sensitivity,
               );
-              eyeSamplesRef.current.push({ time: now, closed: classified.eyesClosed });
-              eyeSamplesRef.current = eyeSamplesRef.current.filter((sample) => now - sample.time <= 60_000);
-              const perclos = calculatePerclos(eyeSamplesRef.current, now);
+
+              const confidence = estimateSignalConfidence({
+                brightness: frameSampleRef.current.brightness,
+                contrast: frameSampleRef.current.contrast,
+                fps: frameCounterRef.current.fps || 30,
+                yawMagnitude: Math.abs(signals.yaw - liveBaseline.yaw),
+                pitchMagnitude: Math.abs(signals.pitch - liveBaseline.pitch),
+                faceFound: true,
+                blendshapeAvailable: Boolean(signals.blendshapes),
+                asymmetry: signals.blendshapes?.asymmetry ?? 0,
+              });
+              confidenceRef.current = confidence;
+
+              // Store the continuous closure fraction, not a boolean, so
+              // PERCLOS can be integrated over time instead of counted.
+              closureSamplesRef.current.push({ time: now, closure: classified.closure });
+              closureSamplesRef.current = closureSamplesRef.current.filter(
+                (sample) => now - sample.time <= 60_000,
+              );
+              marHistoryRef.current.push({
+                time: now,
+                mar: signals.mar,
+                closure: classified.closure,
+              });
+              marHistoryRef.current = marHistoryRef.current.filter(
+                (sample) => now - sample.time <= 8_000,
+              );
+              const perclos = calculatePerclos(closureSamplesRef.current, now);
               if (perclos > 0.28 && !eventFlagsRef.current.perclos) {
                 eventFlagsRef.current.perclos = true;
                 pushEvent(
@@ -1098,6 +1393,10 @@ export default function GuardianDashboard() {
                 const closure = now - eyeClosedAtRef.current;
                 if (closure > 70 && closure < 750) {
                   updateStats({ blinks: statsRef.current.blinks + 1 });
+                  blinkTimesRef.current.push(now);
+                  blinkTimesRef.current = blinkTimesRef.current.filter(
+                    (time) => now - time <= 60_000,
+                  );
                 }
                 eyeClosedAtRef.current = 0;
                 eventFlagsRef.current.eyes = false;
@@ -1115,14 +1414,26 @@ export default function GuardianDashboard() {
                 eventFlagsRef.current.gaze = false;
               }
 
-              if (classified.yawning && !eventFlagsRef.current.yawn) {
+              // A bare MAR threshold fires on conversation, so the opening has
+              // to hold steady and long enough to actually be a yawn.
+              const yawn = detectYawn(marHistoryRef.current, {
+                threshold: classified.thresholds.yawn,
+                now,
+              });
+              yawnActiveRef.current = yawn.active;
+              if (yawn.active && !eventFlagsRef.current.yawn) {
                 eventFlagsRef.current.yawn = true;
                 recentYawnTimesRef.current.push(now);
                 recentYawnTimesRef.current = recentYawnTimesRef.current.filter(
                   (time) => now - time <= 10 * 60_000,
                 );
                 updateStats({ yawns: statsRef.current.yawns + 1 });
-                pushEvent("drowsiness", "Yawn pattern detected", "Mouth geometry crossed your baseline", "medium");
+                pushEvent(
+                  "drowsiness",
+                  "Yawn detected",
+                  `Held ${(yawn.durationMs / 1000).toFixed(1)} sec at ${Math.round(yawn.confidence * 100)}% confidence`,
+                  "medium",
+                );
                 if (
                   recentYawnTimesRef.current.length >= 3 &&
                   !eventFlagsRef.current.repeatedYawn
@@ -1138,7 +1449,7 @@ export default function GuardianDashboard() {
                 } else {
                   speakAlert("yawn");
                 }
-              } else if (!classified.yawning) {
+              } else if (!yawn.active) {
                 eventFlagsRef.current.yawn = false;
               }
               recentYawnTimesRef.current = recentYawnTimesRef.current.filter(
@@ -1148,15 +1459,29 @@ export default function GuardianDashboard() {
               const eyeClosedMs = eyeClosedAtRef.current ? now - eyeClosedAtRef.current : 0;
               const headAwayMs = headAwayAtRef.current ? now - headAwayAtRef.current : 0;
               const gazeAwayMs = gazeAwayAtRef.current ? now - gazeAwayAtRef.current : 0;
+              const minutesOnTask = (now - startedAtRef.current) / 60_000;
+              const context = circadianRisk(new Date().getHours(), minutesOnTask);
+              if (context.breakDue && !eventFlagsRef.current.breakDue) {
+                eventFlagsRef.current.breakDue = true;
+                setBreakDue(true);
+                pushEvent(
+                  "system",
+                  "Two hours at the wheel",
+                  "Fatigue builds with time on task. Plan a break.",
+                  "medium",
+                );
+              }
               const assessment = calculateRisk({
                 eyeClosedMs,
                 perclos,
-                yawnActive: classified.yawning,
+                yawnActive: yawn.active,
                 recentYawns: recentYawnTimesRef.current.length,
                 headAwayMs,
                 gazeAwayMs,
                 phoneVisible: phoneVisibleRef.current,
                 sensitivity: settingsRef.current.sensitivity,
+                confidence,
+                contextGain: context.multiplier,
               });
               riskSmoothedRef.current =
                 riskSmoothedRef.current * 0.78 + assessment.score * 0.22;
@@ -1213,8 +1538,10 @@ export default function GuardianDashboard() {
               if (smoothedRisk > statsRef.current.maxRisk) {
                 updateStats({ maxRisk: smoothedRisk });
               }
+              const snoozed = now < snoozeUntilRef.current;
               if (
                 (smoothedState === "warning" || smoothedState === "danger") &&
+                !snoozed &&
                 now - lastAlertAtRef.current > (smoothedState === "danger" ? 4200 : 8000)
               ) {
                 lastAlertAtRef.current = now;
@@ -1224,10 +1551,23 @@ export default function GuardianDashboard() {
                   false,
                   smoothedState === "danger" ? "danger" : "warning",
                 );
+                // Haptics carry through a noisy cabin and a muted phone.
+                if (settingsRef.current.haptics) {
+                  vibrate(smoothedState === "danger" ? [180, 90, 180, 90, 260] : [140, 110, 140]);
+                }
+              }
+
+              // Drift the baseline only while the driver is confidently focused,
+              // so a long session tracks posture without ever normalizing fatigue.
+              if (smoothedState === "focused" && confidence > 0.7 && !classified.eyesClosed) {
+                baselineRef.current = updateBaseline(baselineRef.current, signals, {
+                  anchor: baselineAnchorRef.current,
+                  confidence,
+                }) as Baseline;
               }
 
               const eyeQuality = Math.round(
-                clamp(signals.ear / Math.max(0.001, baseline.ear), 0, 1.15) * 100,
+                clamp(signals.ear / Math.max(0.001, liveBaseline.ear), 0, 1.15) * 100,
               );
               const distraction = Math.round(
                 clamp(Math.max(headAwayMs / 2500, gazeAwayMs / 2200, phoneVisibleRef.current ? 1 : 0)) * 100,
@@ -1240,17 +1580,63 @@ export default function GuardianDashboard() {
                 ]);
               }
 
-              setTelemetry({
-                ...signals,
-                perclos,
+              // Numeric replay buffer. Sixty seconds of measurements, no frames.
+              telemetryBufferRef.current.push({
+                time: now,
+                ear: signals.ear,
+                mar: signals.mar,
+                closure: classified.closure,
+                yaw: signals.yaw,
+                pitch: signals.pitch,
+                gaze: signals.gaze,
                 risk: smoothedRisk,
-                state: smoothedState,
-                primary: assessment.primary,
-                fps: frameCounterRef.current.fps,
-                faceFound: true,
                 phoneVisible: phoneVisibleRef.current,
-                ...classified,
+                faceFound: true,
               });
+              telemetryBufferRef.current = telemetryBufferRef.current.filter(
+                (sample) => now - sample.time <= REPLAY_WINDOW_MS,
+              );
+
+              // Consented research capture: one labeled numeric window a second.
+              if (settingsRef.current.research && now - lastFeatureAtRef.current > 1_000) {
+                lastFeatureAtRef.current = now;
+                const features = buildFeatureWindow(telemetryBufferRef.current, {
+                  baseline: baselineAnchorRef.current,
+                  now,
+                  blinkTimes: blinkTimesRef.current,
+                  yawnTimes: recentYawnTimesRef.current,
+                });
+                if (features) {
+                  labeledWindowsRef.current.push({
+                    subjectId: subjectId(),
+                    label: researchLabelRef.current,
+                    features,
+                  });
+                  setRecordedWindows(labeledWindowsRef.current.length);
+                }
+              }
+
+              // React state is published at a readable rate; the maths above
+              // still runs on every frame.
+              if (now - lastTelemetryAtRef.current >= TELEMETRY_INTERVAL_MS) {
+                lastTelemetryAtRef.current = now;
+                setTelemetry({
+                  ...signals,
+                  perclos,
+                  risk: smoothedRisk,
+                  state: smoothedState,
+                  primary: assessment.primary,
+                  fps: frameCounterRef.current.fps,
+                  faceFound: true,
+                  phoneVisible: phoneVisibleRef.current,
+                  confidence,
+                  ...classified,
+                  yawning: yawn.active,
+                });
+                setCounterfactual(
+                  smoothedRisk >= 28 ? (explainRisk(assessment) as Counterfactual | null) : null,
+                );
+              }
             }
           }
         }
@@ -1261,6 +1647,22 @@ export default function GuardianDashboard() {
       if (!faceFound && phaseRef.current === "live") {
         if (!faceMissingAtRef.current) faceMissingAtRef.current = now;
         const missingMs = now - faceMissingAtRef.current;
+        confidenceRef.current = 0;
+        telemetryBufferRef.current.push({
+          time: now,
+          ear: 0,
+          mar: 0,
+          closure: 0,
+          yaw: 0,
+          pitch: 0,
+          gaze: 0.5,
+          risk: Math.round(riskSmoothedRef.current),
+          phoneVisible: false,
+          faceFound: false,
+        });
+        telemetryBufferRef.current = telemetryBufferRef.current.filter(
+          (sample) => now - sample.time <= REPLAY_WINDOW_MS,
+        );
         const assessment = calculateRisk({
           faceMissingMs: missingMs,
           sensitivity: settingsRef.current.sensitivity,
@@ -1279,6 +1681,7 @@ export default function GuardianDashboard() {
         setTelemetry((current) => ({
           ...current,
           faceFound: false,
+          confidence: 0,
           risk,
           state: risk >= 54 ? "warning" : risk >= 28 ? "caution" : "focused",
           primary: "missing",
@@ -1305,7 +1708,7 @@ export default function GuardianDashboard() {
       cancelled = true;
       cancelAnimationFrame(frameId);
     };
-  }, [baseline, drawTracker, phase, pushEvent, soundAlert, speakAlert, updateStats]);
+  }, [drawTracker, phase, pushEvent, soundAlert, speakAlert, updateStats]);
 
   useEffect(() => {
     if (phase !== "demo") return;
@@ -1354,8 +1757,11 @@ export default function GuardianDashboard() {
         ear: eyesClosed ? 0.12 : 0.29,
         mar: yawning ? 0.46 : 0.11,
         perclos: eyesClosed ? 0.31 : cycle > 21 ? 0.17 : 0.04,
-        yaw: headAway ? 0.17 : 0.01,
-        pitch: 0.44,
+        yaw: headAway ? 0.38 : 0.01,
+        pitch: 0.02,
+        roll: 0,
+        closure: eyesClosed ? 0.92 : 0.06,
+        confidence: 0.95,
         gaze: gazeAway ? 0.78 : 0.51,
         risk: point.risk,
         state,
@@ -1424,6 +1830,30 @@ export default function GuardianDashboard() {
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
   }, []);
 
+  // Hold the screen awake for the whole session; without it a phone sleeps
+  // and monitoring stops while the interface still says it is running.
+  const wakeLockHeld = useWakeLock(active && phase !== "demo");
+  const pageVisible = usePageVisible();
+
+  // A backgrounded tab stops requestAnimationFrame, so the session is paused
+  // rather than left claiming to monitor something it can no longer see.
+  useEffect(() => {
+    if (pageVisible || !active || phase === "demo") return;
+    pushEvent("system", "Monitoring paused", "The app was moved to the background", "medium");
+  }, [active, pageVisible, phase, pushEvent]);
+
+  // One timer owns both the countdown and the expiry, so the label the driver
+  // reads and the alert path can never disagree.
+  useEffect(() => {
+    if (!snoozeUntil) return;
+    const timer = window.setInterval(() => {
+      const remaining = Math.max(0, snoozeUntil - performance.now());
+      setSnoozeRemaining(remaining);
+      if (remaining <= 0) clearSnooze();
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [clearSnooze, snoozeUntil]);
+
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
       void document.exitFullscreen();
@@ -1432,12 +1862,31 @@ export default function GuardianDashboard() {
     }
   }, []);
 
+  // Single-key shortcuts, invaluable for a live demo and for accessibility.
+  useKeyboardShortcuts({
+    space: () => (active ? stopSession() : void startCamera()),
+    c: recalibrate,
+    d: () => !active && startDemo(),
+    f: toggleFullscreen,
+    m: () => setSettings((current) => ({ ...current, sound: !current.sound, voice: !current.voice })),
+    s: () => active && snoozeAlerts(),
+    v: () => active && setDriveMode((current) => !current),
+    h: () => setHistoryOpen((current) => !current),
+    "?": () => setHelpOpen(true),
+    escape: () => {
+      setSettingsOpen(false);
+      setHelpOpen(false);
+      setHistoryOpen(false);
+      setDriveMode(false);
+    },
+  });
+
   const eyeQuality = Math.round(clamp(telemetry.ear / Math.max(0.001, baseline.ear), 0, 1) * 100);
   const headDeviation = Math.round(
     clamp(
       Math.max(
-        Math.abs(telemetry.yaw - baseline.yaw) / 0.16,
-        Math.abs(telemetry.pitch - baseline.pitch) / 0.2,
+        Math.abs(telemetry.yaw - baseline.yaw) / 0.36,
+        Math.abs(telemetry.pitch - baseline.pitch) / 0.32,
       ),
     ) * 100,
   );
@@ -1452,14 +1901,52 @@ export default function GuardianDashboard() {
     if (cameraQuality.state === "low-light") return "Increase the light in front of you.";
     if (phase === "calibrating") return "Face forward with both eyes open.";
     if (!telemetry.faceFound) return "Center your face in even light.";
+    if (telemetry.confidence < 0.45) return "Improve lighting or face the camera squarely.";
     if (telemetry.state === "danger") return "Pull over safely and rest now.";
     if (telemetry.state === "warning") return "Prepare to stop safely.";
     if (telemetry.state === "caution") return "Look forward. Stop if this continues.";
     return "Attention is stable.";
-  }, [cameraQuality.state, phase, telemetry.faceFound, telemetry.state]);
+  }, [cameraQuality.state, phase, telemetry.confidence, telemetry.faceFound, telemetry.state]);
+
+  if (driveMode && active) {
+    return (
+      <>
+        {/* The video stays mounted but hidden so the detection loop keeps running. */}
+        <div className="drive-video-host" aria-hidden="true">
+          <video ref={attachVideo} muted playsInline />
+          <canvas ref={overlayCanvasRef} />
+        </div>
+        <DriveMode
+          risk={telemetry.risk}
+          state={telemetry.state}
+          label={statusCopy.label}
+          action={statusCopy.action}
+          recommendation={recommendation}
+          sessionSeconds={sessionSeconds}
+          confidence={telemetry.confidence}
+          faceFound={telemetry.faceFound}
+          calibrating={phase === "calibrating"}
+          calibrationProgress={calibrationProgress}
+          counterfactual={counterfactual?.sentence ?? null}
+          breakDue={breakDue}
+          snoozeRemaining={snoozeRemaining}
+          wakeLockHeld={wakeLockHeld}
+          onSnooze={snoozeAlerts}
+          onStop={stopSession}
+          onExit={() => setDriveMode(false)}
+        />
+      </>
+    );
+  }
 
   return (
     <main className={`app-shell risk-${telemetry.state}`} data-phase={phase}>
+      {/* Screen readers get risk transitions; the visual UI already shows them. */}
+      <p className="sr-live" role="status" aria-live="polite">
+        {active
+          ? `${statusCopy.label}. ${recommendation}`
+          : ""}
+      </p>
       <header className="topbar">
         <a className="brand" href="#top" aria-label="Driver Drowsiness and Distraction Detection System home">
           <BrandMark />
@@ -1477,6 +1964,13 @@ export default function GuardianDashboard() {
           </button>
           <button
             className="icon-button"
+            onClick={() => setHistoryOpen(true)}
+            aria-label="Open session history"
+          >
+            <History size={18} />
+          </button>
+          <button
+            className="icon-button"
             onClick={toggleTheme}
             aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             aria-pressed={theme === "dark"}
@@ -1486,12 +1980,22 @@ export default function GuardianDashboard() {
           <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
             <Settings2 size={18} />
           </button>
+          {active && (
+            <button
+              className="icon-button drive-toggle"
+              onClick={() => setDriveMode(true)}
+              aria-label="Enter drive mode"
+              title="Drive mode"
+            >
+              <Gauge size={18} />
+            </button>
+          )}
           {active ? (
             <button className="stop-button" onClick={stopSession} aria-label="End session">
               <Square size={14} fill="currentColor" /> <span>End session</span>
             </button>
           ) : (
-            <button className="start-button compact" onClick={startCamera} aria-label="Start monitoring">
+            <button className="start-button compact" onClick={() => void startCamera()} aria-label="Start monitoring">
               <Play size={15} fill="currentColor" /> <span>Start monitoring</span>
             </button>
           )}
@@ -1521,6 +2025,11 @@ export default function GuardianDashboard() {
                     <RefreshCw size={15} />
                   </button>
                 )}
+                {active && phase !== "demo" && cameras.length > 1 && (
+                  <button className="icon-button small" onClick={switchCamera} aria-label="Switch camera">
+                    <SwitchCamera size={15} />
+                  </button>
+                )}
                 <button className="icon-button small" onClick={toggleFullscreen} aria-label="Toggle fullscreen">
                   {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
                 </button>
@@ -1528,7 +2037,7 @@ export default function GuardianDashboard() {
             </div>
 
             <div className={`camera-stage ${settings.privacyMode ? "privacy-on" : ""}`}>
-              <video ref={videoRef} muted playsInline aria-label="Live driver camera" />
+              <video ref={attachVideo} muted playsInline aria-label="Live driver camera" />
               <canvas ref={overlayCanvasRef} className="face-tracker" aria-hidden="true" />
 
               {phase === "idle" && (
@@ -1537,7 +2046,7 @@ export default function GuardianDashboard() {
                   <h2>Ready to monitor</h2>
                   <p>Private. On-device. No video saved.</p>
                   <div className="stage-buttons">
-                    <button className="start-button" onClick={startCamera}>
+                    <button className="start-button" onClick={() => void startCamera()}>
                       <Play size={17} fill="currentColor" /> Start monitoring
                     </button>
                     <button className="secondary-button" onClick={startDemo}>
@@ -1598,7 +2107,16 @@ export default function GuardianDashboard() {
             <article className="panel risk-panel">
               <div className="panel-heading compact-heading">
                 <h2><Gauge size={17} /> Risk</h2>
-                <span className="confidence-chip">{telemetry.faceFound ? "Face detected" : active ? "Finding face" : "Ready"}</span>
+                <span
+                  className={`confidence-chip ${active && telemetry.confidence < 0.45 ? "is-unsure" : ""}`}
+                  title="How well the system can currently read the driver"
+                >
+                  {!active
+                    ? "Ready"
+                    : !telemetry.faceFound
+                      ? "Finding face"
+                      : `${Math.round(telemetry.confidence * 100)}% confidence`}
+                </span>
               </div>
               <div className="risk-score" aria-label={`Attention risk ${telemetry.risk} out of 100`}>
                 <strong>{telemetry.risk}</strong><span>/ 100</span>
@@ -1610,7 +2128,26 @@ export default function GuardianDashboard() {
                 </div>
                 <p>{recommendation}</p>
                 {active && <small>{PRIMARY_COPY[telemetry.primary] || "Baseline stable"}</small>}
+                {active && counterfactual && telemetry.confidence >= 0.45 && (
+                  <p className="counterfactual">{counterfactual.sentence}</p>
+                )}
               </div>
+              {active && breakDue && (
+                <p className="break-nudge">
+                  <Timer size={14} /> Two hours at the wheel. Plan a break.
+                </p>
+              )}
+              {active && (
+                <button
+                  className={`snooze-button ${snoozeRemaining > 0 ? "is-active" : ""}`}
+                  onClick={snoozeRemaining > 0 ? clearSnooze : snoozeAlerts}
+                >
+                  <BellOff size={14} />
+                  {snoozeRemaining > 0
+                    ? `Snoozed ${formatDuration(Math.ceil(snoozeRemaining / 1000))}`
+                    : "Snooze alerts 5 min"}
+                </button>
+              )}
             </article>
 
             <div className="metric-grid">
@@ -1760,6 +2297,11 @@ export default function GuardianDashboard() {
                   </span>
                 </div>
               </div>
+              <label className="toggle-row">
+                <span><Zap size={17} /><span><strong>Vibration</strong></span></span>
+                <input type="checkbox" checked={settings.haptics} onChange={(event) => setSettings((current) => ({ ...current, haptics: event.target.checked }))} />
+                <i />
+              </label>
               <button className="drawer-action" onClick={() => speakAlert("warning", true)}><Volume2 size={15} /> Test voice</button>
             </div>
 
@@ -1792,12 +2334,78 @@ export default function GuardianDashboard() {
               <p className="settings-note"><Info size={14} /> Precision is enabled by default.</p>
             </div>
 
+            <div className="settings-section">
+              <span className="settings-label">RESEARCH</span>
+              <label className="toggle-row">
+                <span><FlaskConical size={17} /><span><strong>Record labeled windows</strong></span></span>
+                <input
+                  type="checkbox"
+                  checked={settings.research}
+                  onChange={(event) =>
+                    setSettings((current) => ({ ...current, research: event.target.checked }))
+                  }
+                />
+                <i />
+              </label>
+              <p className="settings-note consent-note">
+                <Info size={14} />
+                Off by default. Records one row of numeric measurements per second
+                for training. No image, video, or face template is ever captured,
+                and nothing is uploaded.
+              </p>
+              {settings.research && (
+                <>
+                  <div className="segmented-control">
+                    {RESEARCH_LABELS.map((label) => (
+                      <button
+                        key={label}
+                        className={researchLabel === label ? "active" : ""}
+                        onClick={() => setResearchLabel(label)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="settings-note">
+                    <Info size={14} /> {recordedWindows} window
+                    {recordedWindows === 1 ? "" : "s"} captured as
+                    <strong> {researchLabel}</strong>.
+                  </p>
+                  <button
+                    className="drawer-action"
+                    disabled={!recordedWindows}
+                    onClick={exportResearchCsv}
+                  >
+                    <Download size={15} /> Export CSV for ml/train_fusion.py
+                  </button>
+                  <button
+                    className="drawer-action danger"
+                    disabled={!recordedWindows}
+                    onClick={discardResearch}
+                  >
+                    <X size={15} /> Discard captured windows
+                  </button>
+                </>
+              )}
+            </div>
+
             <div className="privacy-proof">
               <LockKeyhole size={20} />
               <div><strong>Local processing</strong><span>No footage is saved.</span></div>
             </div>
           </aside>
         </div>
+      )}
+
+      {historyOpen && (
+        <SessionHistory
+          sessions={sessions}
+          onClear={() => {
+            clearSessions();
+            setSessions([]);
+          }}
+          onClose={() => setHistoryOpen(false)}
+        />
       )}
 
       {helpOpen && (
