@@ -44,3 +44,5 @@ yarn-error.log*
 /ml/data/
 /ml/artifacts/
 /.venv/
+__pycache__/
+/.playwright-mcp/

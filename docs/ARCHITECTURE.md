@@ -75,7 +75,20 @@ peak opening but reverses direction several times a second and never holds.
 
 ### Head and gaze deviation
 
-Yaw and pitch use normalized face geometry. Iris position is measured relative to the eye corners. Both compare against the current driver’s median calibration baseline.
+Yaw, pitch, and roll come from a YXZ Euler decomposition of MediaPipe's facial
+transformation matrix, with scale divided out. Iris position is measured
+relative to the eye corners. Both compare against the current driver's median
+calibration baseline.
+
+### Square pixels before any ratio
+
+MediaPipe normalizes landmark x by frame width and y by frame height. Every ratio
+(EAR, MAR, iris position) is therefore distorted by the camera's aspect ratio:
+an open eye read EAR ~0.52 on a 16:9 webcam and ~0.17 on a portrait phone.
+`extractFaceSignals(..., { aspect })` rescales x to square pixels first. This was
+found by evaluating against DMD's human eye-state labels; the closed-eye
+threshold was then re-tuned by leave-one-driver-out cross-validation, because
+the old hand-set cut had silently compensated for the distortion.
 
 ## Risk fusion
 
@@ -102,6 +115,28 @@ Because the fusion keeps its per-signal contributions, the interface can state
 what would actually change the outcome: "Risk would fall from 68 to 31 if your
 gaze returned to the road." This is the same arithmetic the score is built from,
 re-run with the largest contributor removed.
+
+## Learned models
+
+Two networks trained for this project run beside the rule engine, in plain
+JavaScript with no ML runtime:
+
+- **EyeNet** (`lib/detection/eyeNet.mjs`, `public/models/eye-state-cnn.json`):
+  four 3x3 conv blocks over a 32x32 grayscale crop aligned to the eye corners
+  (`lib/detection/eyeCrop.mjs`). BatchNorm folded, int8 weights. Trained on DMD
+  eye crops, tested on held-out drivers and on MRL Eye infrared images.
+- **Drowsiness GRU** (`lib/detection/sequence.mjs`, `public/models/drowsiness-gru.json`):
+  32 hidden units over 30 s of 14 calibrated channels at 15 Hz, mean and max
+  pooled, temperature-scaled. Trained on UTA-RLDD's 60 participants.
+
+`lib/detection/tracker.mjs` is the dashboard's per-frame state machine as a pure
+function of recorded frames. `ml/replay_rule_engine.mjs` uses it to score the
+deterministic engine on the public datasets, so the rule engine and the learned
+models are compared on identical inputs. The Model Lab (`/lab`) runs all three
+live and renders every experiment result from `public/results/*.json`.
+
+A learned model never overrides the rule engine: a sustained closure always
+raises risk on its own.
 
 ## Performance
 

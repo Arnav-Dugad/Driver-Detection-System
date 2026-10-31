@@ -1,6 +1,6 @@
 {
-  "name": "Driver Drowsiness & Distraction Detection System",
-  "short_name": "Aegis Drive",
+  "name": "Driver Drowsiness & Distraction Detection",
+  "short_name": "Driver Detection",
   "description": "Private, on-device driver drowsiness and distraction monitoring with multilingual voice warnings.",
   "start_url": ".",
   "scope": ".",

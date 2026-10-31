@@ -17,6 +17,9 @@ export type BlendshapeSignals = {
   mouthPucker: number;
   gaze: number;
   gazeVertical: number;
+  squint: number;
+  wide: number;
+  browInnerUp: number;
   asymmetry: number;
 };
 
@@ -136,7 +139,7 @@ export declare function fuseClosure(input: {
 
 export declare function extractFaceSignals(
   landmarks: Array<{ x: number; y: number; z?: number }> | undefined,
-  options?: { matrix?: unknown; blendshapes?: unknown },
+  options?: { matrix?: unknown; blendshapes?: unknown; aspect?: number },
 ): FaceSignals | null;
 
 export declare function classifySignals(

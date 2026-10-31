@@ -8,7 +8,7 @@
  * still leaves the app fully functional offline afterwards.
  */
 
-const VERSION = "aegis-v1";
+const VERSION = "ddd-v2"; // v2: eye-state CNN and drowsiness GRU added; renamed from "aegis"
 const SHELL_CACHE = `${VERSION}-shell`;
 const ASSET_CACHE = `${VERSION}-assets`;
 
