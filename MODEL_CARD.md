@@ -1,4 +1,4 @@
-# Model card — Driver Drowsiness & Distraction Detection System
+# Model card — Driver Drowsiness & Distraction Detection
 
 ## Intended use
 
@@ -10,10 +10,18 @@ The system is intended for education, prototyping, offline demonstrations, and c
   52 face blendshape scores, and a 4x4 facial transformation matrix.
 - **EfficientDet-Lite0:** detects the `cell phone` object category.
 - **Temporal fusion:** deterministic, personalized signal-processing and risk-scoring logic in `lib/detection/core.mjs`.
-- **Optional learned fusion:** a Random Forest training and evaluation pipeline in
-  `ml/train_fusion.py`, exportable for in-browser scoring through
-  `ml/export_browser_model.py` and `lib/detection/learned.mjs`. The deterministic
-  engine remains the default and the fallback.
+- **EyeNet (trained here):** a 15,290-parameter CNN that classifies 32x32
+  landmark-aligned eye crops as open or closed. BatchNorm folded, int8 weights
+  (15 KB), plain-JavaScript inference in `lib/detection/eyeNet.mjs`. Trained on
+  the DMD drowsiness subset (13 drivers).
+- **Drowsiness GRU (trained here):** 32 hidden units over 30 s of 14 calibrated
+  per-frame channels at 15 Hz; outputs alert / low-vigilant / drowsy,
+  temperature-scaled. Trained on all 60 UTA-RLDD participants;
+  `lib/detection/sequence.mjs`.
+- **Optional recorder fusion:** the original Random Forest pipeline in
+  `ml/train_fusion.py` for consented recordings, scored by
+  `lib/detection/learned.mjs`. The deterministic engine remains the default and
+  the fallback; learned models are shown beside it in the Model Lab.
 
 ## Signal derivation
 
@@ -63,19 +71,49 @@ so that posture drift over a long session does not accumulate into false alerts.
 Adaptation is clamped to +/-15% of the originally calibrated values, so the
 system cannot adapt its way into treating a genuinely drowsy face as normal.
 
-## Evaluation status
+## Evaluation
 
-The repository includes deterministic logic tests and build tests. It does **not** include a claimed real-world accuracy number because no representative, consented, subject-independent evaluation dataset is bundled.
+All results are for people absent from training. Full numbers, intervals and
+figures: `ml/reports/*.json`, `ml/reports/figures/`, and the Model Lab (`/lab`).
 
-Before reporting accuracy, evaluate on people who never appear in training and report:
+### Eye state (DMD, 13 drivers, 65,290 labelled frames, 5-fold by driver)
 
-- per-class precision, recall, and F1;
-- macro F1 and balanced accuracy;
-- false positive alerts per hour;
-- event detection latency;
-- ROC-AUC where appropriate;
-- results by lighting, glasses, camera, skin tone, and head angle;
-- confidence intervals and the number of participants.
+| Model | Parameters | Accuracy | F1 closed (95% CI over drivers) | ROC-AUC |
+| --- | --- | --- | --- | --- |
+| Pixels + PCA + logistic regression | 65,601 | 97.2% | 0.900 (0.846-0.936) | 0.989 |
+| EyeNet-S int8 (shipped) | 15,290 | 98.9% | 0.959 (0.934-0.977) | 0.998 |
+
+Out of domain, MRL Eye (4,000 near-infrared images, 16 subjects, never used for
+training): 92.6% accuracy, ROC-AUC 0.958.
+
+### Closed-eye decision in the app
+
+The aspect-ratio correction plus a closed-eye cut of 0.52, chosen by
+leave-one-driver-out cross-validation, gives closed-eye F1 0.948 on held-out
+drivers (0.918 before the fix, 0.803 with the fix and the old cut). Replayed
+through the app's own engine: F1 0.956, false-positive rate 0.3%.
+
+Events, replayed over 49 minutes of DMD: blinks 87.0% precision / 62.8% recall;
+yawns 69.8% precision / 39.5% recall (most misses are yawns behind a hand).
+
+### Drowsiness (UTA-RLDD, 60 people, official 5 folds)
+
+Three-class video accuracy (alert / low vigilant / drowsy; chance 33%), 95%
+intervals from resampling people:
+
+| Model | Video accuracy | Alert vs drowsy ROC-AUC | ECE |
+| --- | --- | --- | --- |
+| Rule engine (app, replayed) | 47.8% (42.3-53.3) | 0.630 | 0.017 |
+| Logistic regression | 53.3% (48.1-58.6) | 0.761 | 0.077 |
+| GRU, temperature-scaled (shipped) | 52.2% (45.9-58.7) | 0.780 | 0.024 |
+| Published HM-LSTM (whole videos) | 65.2% | - | - |
+
+Logistic regression and the GRU beat the rule engine (exact McNemar p = 0.018
+and 0.035). Each video contributes six 30-second clips, about a third of the
+footage the published model read. Reusing an alert-state calibration looked
+like a large gain until pose and gaze, which identify the recording setup, were
+excluded; with only the eye and mouth reference reused, the gain disappeared,
+so the app keeps per-session calibration.
 
 ## Known limitations
 
@@ -83,6 +121,12 @@ Before reporting accuracy, evaluate on people who never appear in training and r
 - glasses and sunglasses can reduce eye and iris accuracy;
 - talking can still resemble yawning under unusual speech patterns, though the
   duration and oscillation gates reject ordinary conversation;
+- yawns covered by a hand are mostly missed;
+- the stricter, data-tuned eye cut misses partial blinks, lowering blink-rate
+  recall;
+- the drowsiness labels are self-rated KSS states of whole recordings, not
+  moment-to-moment ground truth;
+- the public DMD subset has 13 drivers, so per-driver intervals are wide;
 - a visible phone does not prove interaction;
 - facial geometry and behavior vary between people;
 - browser performance and alert timing vary by hardware;
@@ -103,6 +147,13 @@ inside one train/test split. No image, video frame, face template, landmark set,
 or identity is captured, and nothing is transmitted anywhere: the export is a
 file the person downloads themselves.
 
+## Dataset licences
+
+UTA-RLDD (Ghoddoosian et al., CVPRW 2019) is used for research with citation.
+DMD (Ortega et al., ECCV-W 2020) is CC BY-NC-ND 4.0: used for non-commercial
+coursework only, and no frame or crop is redistributed. MRL Eye (Fusek, ISVC
+2018) is used as a test set only.
+
 ## Versioning
 
 Any change to landmark indices, thresholds, temporal windows, signal
@@ -110,3 +161,6 @@ definitions, model files, or alert behavior should update this card and be
 treated as a model change. The PERCLOS definition changed from sample-counted to
 time-weighted P80, and head pose changed from landmark ratios to a matrix
 decomposition in radians; thresholds from earlier versions do not transfer.
+Landmark ratios are now computed in square pixels (the `aspect` option), and the
+closed-eye cut moved from 0.26 to 0.52 accordingly; EAR values from earlier
+versions are not comparable.

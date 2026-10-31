@@ -54,7 +54,8 @@ test("calibration uses robust medians instead of a single frame", () => {
 });
 
 test("sensitivity changes personalized thresholds predictably", () => {
-  const signals = { ear: 0.21, mar: 0.3, yaw: 0.08, pitch: 0.01, gaze: 0.68 };
+  // 0.14 / 0.29 sits between the low (43.6%) and high (51.4%) sensitivity cuts.
+  const signals = { ear: 0.14, mar: 0.3, yaw: 0.08, pitch: 0.01, gaze: 0.68 };
   const baseline = { ear: 0.29, mar: 0.11, yaw: 0, pitch: 0, gaze: 0.5 };
   const low = classifySignals(signals, baseline, 0.25);
   const high = classifySignals(signals, baseline, 0.9);

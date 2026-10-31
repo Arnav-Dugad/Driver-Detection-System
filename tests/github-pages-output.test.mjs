@@ -5,7 +5,7 @@ import test from "node:test";
 test("GitHub Pages export has correct project paths and offline models", async () => {
   const output = new URL("../dist/client/", import.meta.url);
   const html = await readFile(new URL("index.html", output), "utf8");
-  assert.match(html, /<title>Driver Drowsiness &amp; Distraction Detection System<\/title>/);
+  assert.match(html, /<title>Driver Drowsiness &amp; Distraction Detection<\/title>/);
   assert.match(html, /\/Driver-Detection-System\/_next\//);
   assert.match(html, /https:\/\/arnav-dugad\.github\.io\/Driver-Detection-System\/og\.png/);
 
@@ -21,6 +21,18 @@ test("GitHub Pages export has correct project paths and offline models", async (
   ]);
 
   assert.match(html, /rel="manifest"/, "the page must advertise its manifest");
+
+  // The Model Lab and the experiment results it renders must ship too.
+  const lab = await readFile(new URL("lab.html", output), "utf8");
+  assert.match(lab, /Model Lab/);
+  assert.match(lab, /\/Driver-Detection-System\/_next\//);
+  await Promise.all([
+    access(new URL("results/drowsiness.json", output)),
+    access(new URL("results/signals.json", output)),
+    access(new URL("results/eye_cnn.json", output)),
+    access(new URL("models/eye-state-cnn.json", output)),
+    access(new URL("models/drowsiness-gru.json", output)),
+  ]);
 
   const chunksDirectory = new URL("_next/static/chunks/", output);
   const dashboardChunk = (await readdir(chunksDirectory)).find((name) =>

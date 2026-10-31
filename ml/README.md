@@ -1,98 +1,84 @@
-# Optional learned fusion experiment
+# Machine-learning experiments
 
-The live browser app works without Python. This directory is for the formal machine-learning experiment in a college report.
+The live app runs without Python. This directory holds the experiments that
+train, evaluate and export the two learned models it ships, all on public data
+from real people. You do not need to record anyone yourself.
 
-## What it trains
+| Script | What it does | Output |
+| --- | --- | --- |
+| `extract_signals.py` | Streams public videos, runs the app's MediaPipe model, writes per-frame signals (and 32x32 eye crops for DMD) | `ml/data/signals/`, `ml/data/crops/` |
+| `train_eye_cnn.py` | Trains EyeNet on DMD eye crops, 5-fold by driver; tests on MRL Eye; exports int8 weights | `public/models/eye-state-cnn.json`, `public/results/eye_cnn.json` |
+| `evaluate_signals.py` | Scores EAR, blendshape, app fusion and the CNN frame by frame against DMD labels; replays the JS engine for blink and yawn events; tunes the closed-eye threshold by leave-one-driver-out CV | `public/results/signals.json` |
+| `train_drowsiness.py` | Rule engine vs logistic regression, random forest, gradient boosting, TCN and GRU on UTA-RLDD's official 5 folds; exports the calibrated GRU | `public/models/drowsiness-gru.json`, `public/results/drowsiness.json` |
+| `replay_rule_engine.mjs` | Runs the app's unchanged JavaScript tracker over recorded frames | called by the two scripts above |
+| `make_parity_fixture.py` | Records real MediaPipe frames for the JS/Python parity test | `tests/fixtures/signal-parity.json` |
+| `train_fusion.py` | The original consented-recording pipeline (Random Forest on 13 window features) | unchanged |
 
-`train_fusion.py` trains a class-balanced Random Forest on numeric temporal windows. It performs a subject-independent holdout, tunes only on the training participants with GroupKFold, and writes:
+Figures for the report and slides are written to `ml/reports/figures/`, and
+full metric dumps to `ml/reports/*.json`.
 
-- `driver_fusion.joblib`
-- `metrics.json`
-- `feature_importance.csv`
-- `test_predictions.csv`
+## Data
 
-## Getting the data out of the app
+All three datasets are public and used for non-commercial coursework with
+citation. They are streamed from the Hugging Face mirror
+`nyvantran/drowsy_dataset` and `oliveirabruno01/litbench-mrl-eye`; nothing is
+committed to Git (`ml/data/` is ignored).
 
-You no longer have to build the CSV by hand. In the app open
-**Settings -> Research -> Record labeled windows** (off by default), pick a
-label, run a session, then export. The browser writes exactly the schema below,
-and `tests/features.test.mjs` asserts the two lists match by reading the
-`FEATURES` list in `train_fusion.py` directly, so the app and this pipeline
-cannot silently drift apart.
+| Dataset | People | Used for | Licence |
+| --- | --- | --- | --- |
+| UTA-RLDD (Ghoddoosian et al., CVPRW 2019) | 60 | Alert / low-vigilant / drowsy classification | Research use |
+| DMD drowsiness subset (Ortega et al., ECCV-W 2020) | 13 in the mirror | Eye-state CNN, frame-level signal evaluation, blink and yawn events | CC BY-NC-ND 4.0 |
+| MRL Eye public subset (Fusek, ISVC 2018) | MRL subjects, 4,000 images | Out-of-domain test of the CNN | Research use |
 
-The recorder captures numeric aggregates only. No image, video frame, face
-template, landmark set, or identity is written, and nothing is uploaded.
-
-## CSV format
-
-Every row is one labeled temporal window. Required columns:
-
-```text
-subject_id,label,ear_mean,ear_min,perclos_60s,longest_closure_ms,
-blink_rate_per_min,mar_mean,mar_max,yawns_10m,yaw_deviation,
-pitch_deviation,gaze_deviation,phone_ratio,face_missing_ratio
-```
-
-Use anonymous participant codes in `subject_id`. Suggested labels are `focused`, `caution`, `drowsy`, and `distracted`. Do not put adjacent windows from one participant into different splits; the script prevents this by splitting on `subject_id`.
+No dataset frame or eye crop is reproduced in figures, the app, or Git.
 
 ## Setup
-
-From the repository root:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 python -m pip install -r ml\requirements.txt
 ```
 
-On macOS or Linux, activate with `source .venv/bin/activate`.
-
-## Verify the pipeline with synthetic data
+## Reproduce everything
 
 ```powershell
-python ml\generate_demo_data.py
-python ml\train_fusion.py --data ml\data\synthetic_demo.csv --quick
+cd ml
+python extract_signals.py dmd  --workers 6
+python extract_signals.py rldd --workers 12 --segments 6 --seconds 36 --fps 15
+python train_eye_cnn.py
+python evaluate_signals.py
+python train_drowsiness.py
+cd ..
+npm run test:unit     # parity tests check the exported models against PyTorch
 ```
 
-Synthetic results only show that the code works. They are not evidence of real-world accuracy and must be labeled as synthetic in a presentation.
+Extraction downloads about 45 GB of video segments and takes roughly an hour
+on a 20-thread CPU with a 25 MB/s connection; the training scripts take
+15-40 minutes each on CPU. `--quick` on either training script runs a short
+smoke test.
 
-## Train on real labeled features
+## Rules the experiments follow
 
-```powershell
-python ml\train_fusion.py --data path\to\your_labeled_windows.csv --output ml\artifacts\real_experiment
-```
+- **No person in both train and test.** RLDD uses its own five folds of 12
+  people; DMD uses 5-fold GroupKFold by driver.
+- **Intervals resample people, not frames.** Frames from one person are
+  strongly correlated, so frame-level bootstraps would be falsely narrow.
+- **The rule engine is the app's own code.** It is replayed from
+  `lib/detection/tracker.mjs`, not re-implemented.
+- **Python ports are tested against JavaScript** on recorded MediaPipe output
+  (`tests/signal-parity.test.mjs`), and both exported models are tested
+  against PyTorch reference outputs (`tests/learned-models.test.mjs`).
+- **Lighting is never a model input.** RLDD participants recorded each state
+  at different times of day; brightness would let a model recognise the room.
+- **The shipped format is what gets scored.** The CNN is evaluated after
+  BatchNorm folding and int8 quantisation; the GRU after temperature scaling.
 
-Keep the raw consented research data outside Git. Commit only aggregate metrics and documentation unless every participant explicitly approved publication.
+## The original recorder pipeline
 
-## Score a trained model in the browser
-
-`export_browser_model.py` flattens the trained forest into a compact JSON that
-`lib/detection/learned.mjs` can walk directly, with no ONNX runtime and no
-server call:
-
-```powershell
-python ml\export_browser_model.py --model ml\artifacts\driver_fusion.joblib
-```
-
-The export subsamples the forest (`--max-trees`, default 60) to keep the payload
-small enough to ship to a phone. It also carries the training medians so the
-browser imputes missing features exactly the way training did.
-
-The deterministic engine in `lib/detection/core.mjs` stays the default and the
-fallback. A learned model can only nudge the blended score, never override
-obvious explainable evidence such as a two-second eye closure - a model trained
-on a classroom-sized dataset has not earned that authority.
-
-## Recommended report tables
-
-- participants and recording conditions
-- label definitions and reviewer agreement
-- participant-safe split counts
-- per-class precision, recall, and F1
-- macro F1 and balanced accuracy
-- confusion matrix
-- false alerts per hour
-- alert latency for each event class
-- subgroup results and known failures
-- ablation comparison against EAR-only and no-calibration baselines
-- deterministic engine versus learned fusion on the same held-out participants
+`train_fusion.py` still trains a Random Forest on CSVs written by the app's
+opt-in recorder (**Settings → Research → Record labeled windows**), and
+`export_browser_model.py` flattens it for `lib/detection/learned.mjs`. Use it
+if you later collect consented recordings of your own;
+`generate_demo_data.py` produces clearly synthetic data for a smoke test only.

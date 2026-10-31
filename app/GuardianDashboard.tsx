@@ -1059,7 +1059,7 @@ export default function GuardianDashboard() {
 
   const exportReport = useCallback(() => {
     const report = {
-      product: "Driver Drowsiness & Distraction Detection System",
+      product: "Driver Drowsiness & Distraction Detection",
       generatedAt: new Date().toISOString(),
       session: {
         duration: formatDuration(sessionSeconds),
@@ -1310,6 +1310,7 @@ export default function GuardianDashboard() {
           const signals = extractFaceSignals(landmarks, {
             matrix: result.facialTransformationMatrixes?.[0] ?? null,
             blendshapes: result.faceBlendshapes?.[0] ?? null,
+            aspect: video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1,
           });
           if (signals) {
             if (phaseRef.current === "calibrating") {
@@ -1948,17 +1949,20 @@ export default function GuardianDashboard() {
           : ""}
       </p>
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="Driver Drowsiness and Distraction Detection System home">
+        <a className="brand" href="#top" aria-label="Driver Drowsiness and Distraction Detection home">
           <BrandMark />
           <span>
             <strong>Driver Drowsiness &amp; Distraction</strong>
-            <small>Detection System</small>
+            <small>Detection</small>
           </span>
         </a>
         <span className={`system-status ${modelReady ? "is-ready" : ""}`}>
           <span className="status-dot" /> {active ? "Monitoring" : modelReady ? "Ready" : "Standby"}
         </span>
         <div className="top-actions">
+          <a className="icon-button" href={`${ASSET_BASE_PATH}/lab`} aria-label="Open the Model Lab" title="Model Lab">
+            <FlaskConical size={18} />
+          </a>
           <button className="icon-button" onClick={() => setHelpOpen(true)} aria-label="Open quick guide">
             <CircleHelp size={18} />
           </button>

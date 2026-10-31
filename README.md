@@ -1,8 +1,10 @@
-# Driver Drowsiness & Distraction Detection System
+# Driver Drowsiness & Distraction Detection
 
-Driver Drowsiness & Distraction Detection System is a privacy-first college machine-learning project. It runs in the browser, uses the webcam only after permission is granted, and processes every frame on the device.
+Driver Drowsiness & Distraction Detection is a privacy-first college machine-learning project. It runs in the browser, uses the webcam only after permission is granted, and processes every frame on the device.
 
 There are no API keys, paid services, subscriptions, accounts, or cloud inference. The included model files and runtime are served from this project, so camera frames never need to leave the browser.
+
+**Live, free:** [arnav-dugad.github.io/Driver-Detection-System](https://arnav-dugad.github.io/Driver-Detection-System/) · **Model Lab:** [/lab](https://arnav-dugad.github.io/Driver-Detection-System/lab)
 
 > **Safety notice:** This system is a research prototype, not certified automotive safety equipment. It must not be relied on to prevent a crash. Never interact with a laptop or phone while driving. If you feel sleepy, pull over safely and rest.
 
@@ -40,6 +42,10 @@ There are no API keys, paid services, subscriptions, accounts, or cloud inferenc
 
 **Research**
 
+- two models trained on public data from real people: an int8 eye-state CNN and
+  a calibrated drowsiness GRU, both running in plain JavaScript
+- a **Model Lab** page: all models side by side on your webcam, plus every
+  experiment result rendered from the training outputs
 - privacy-safe JSON reports including a 60-second numeric replay buffer
 - an opt-in labeled-window recorder that exports CSV straight into the training pipeline
 - an optional subject-aware training, evaluation, and browser-export pipeline under `ml/`
@@ -91,6 +97,10 @@ Open [http://localhost:3000](http://localhost:3000) in the latest Chrome or Edge
 4. Keep your full face visible with even front lighting.
 5. Use **Demo** instead when presenting without a webcam.
 6. Press **End session** when finished. A numeric summary is stored only in this browser.
+
+Press the flask icon to open the **Model Lab**: start its camera to watch the
+rule engine, the eye-state CNN and the drowsiness GRU score the same frames side
+by side, then scroll for every experiment result.
 
 On a phone, press the gauge icon to enter **Drive Mode**: one large risk number,
 one large stop button, and a screen wake lock so monitoring does not stop when
@@ -161,6 +171,7 @@ do.
 ```text
 app/
   GuardianDashboard.tsx    live vision loop, interface, alerts, session logic
+  lab/                     Model Lab: live shadow mode and results explorer
   DriveMode.tsx            full-screen glanceable view for a mounted phone
   SessionHistory.tsx       local session journal and trends
   hooks.ts                 wake lock, page visibility, shortcuts, haptics
@@ -168,14 +179,18 @@ app/
   globals.css              minimal responsive visual system
 lib/detection/
   core.mjs                 tested geometry, pose, calibration, PERCLOS, risk fusion
+  tracker.mjs              the live per-frame state machine as a pure function
+  eyeCrop.mjs, eyeNet.mjs  eye crops and the int8 eye-state CNN, plain JavaScript
+  sequence.mjs             30 s signal buffer and the drowsiness GRU
   features.mjs             the 13-feature window ml/train_fusion.py consumes
-  learned.mjs              optional in-browser scoring of a trained model
-public/models/             bundled MediaPipe and EfficientDet model weights
+  learned.mjs              optional in-browser scoring of a recorder-trained forest
+public/models/             MediaPipe, EfficientDet, and the two trained models
+public/results/                experiment results the Model Lab renders
 public/wasm/               bundled MediaPipe browser runtime
 public/sw.js               offline shell and model cache
-ml/                        optional subject-aware training/evaluation pipeline
-docs/                      setup, architecture, safety, and presentation guides
-tests/                     deterministic unit, schema, and server-render tests
+ml/                        extraction, training, evaluation on public datasets
+docs/                      setup, architecture, presentation guide, slide deck
+tests/                     unit, parity, schema, and server-render tests
 ```
 
 ## Privacy
@@ -218,20 +233,29 @@ The deterministic engine remains the default and the fallback. A learned model
 can only ever nudge the score, never override obvious explainable evidence such
 as a two-second eye closure.
 
-## Accuracy and honest project claims
+## Results on real people
 
-The live system is functional, but no responsible project should call itself universally accurate without a representative test set. Lighting, glasses, camera angle, facial anatomy, skin tone, disability, hardware, and road vibration can all affect results.
+Every number is for people the model never saw, on public datasets (no data of
+our own was needed). Open the **Model Lab** (flask icon, or `/lab`) to explore
+them, or read `ml/reports/*.json`.
 
-For a strong college submission:
+| What | Data | Result |
+| --- | --- | --- |
+| Eye-state CNN (EyeNet, 15k params, int8) | DMD, 13 drivers, 5-fold by driver | ROC-AUC 0.998, F1 0.959 |
+| Same model, out of domain | MRL Eye, 4,000 infrared images | 92.6% accuracy |
+| App's closed-eye decision after the aspect fix and a CV-tuned threshold | DMD | F1 0.956, 0.3% false positives |
+| Drowsiness, best learned model vs rule engine | UTA-RLDD, 60 people, official folds | 53.3% vs 47.8% three-class video accuracy (p = 0.018); published HM-LSTM 65.2% |
 
-1. collect consented, non-driving recordings or use licensed research datasets;
-2. keep each person entirely inside one data split to avoid identity leakage;
-3. report precision, recall, macro F1, false alarms per hour, and detection latency;
-4. test day/night lighting, glasses, face coverings, different cameras, and head angles;
-5. document failures instead of hiding them;
-6. never test unsafe behavior on a public road.
+Two findings came from measuring rather than modelling: MediaPipe's normalized
+coordinates had been stretching every eye and mouth ratio by the camera's
+aspect ratio, and an apparently large gain from reusing an alert-state
+calibration turned out to be a camera-placement confound. Both are written up in
+the project report and on the Model Lab page.
 
-The optional `ml/` pipeline enforces subject-aware splitting and produces reproducible metrics. Synthetic data is provided only to verify the pipeline—not as evidence of real-world accuracy.
+The system is still a research prototype: labels are self-rated sleepiness and
+eye state, not crashes; the public DMD subset is small; and camera-only methods
+fail with sunglasses, a hand over the mouth, or night without infrared.
+Reproduce everything with the steps in [ml/README.md](ml/README.md).
 
 ## Troubleshooting
 

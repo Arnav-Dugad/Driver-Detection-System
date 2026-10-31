@@ -15,20 +15,30 @@ them:
 - an installable PWA shell with an offline model cache
 - a consent-based numeric feature recorder feeding `ml/train_fusion.py` directly
 - an optional learned-fusion export scored in the browser without ONNX
+- subject-independent evaluation on three public datasets of real people
+  (UTA-RLDD, DMD, MRL Eye), with intervals over people and McNemar tests
+- EyeNet, an int8 eye-state CNN, and a temperature-scaled drowsiness GRU, both
+  running in plain JavaScript and parity-tested against PyTorch
+- the aspect-ratio fix and a closed-eye threshold chosen by leave-one-driver-out
+  cross-validation
+- rule engine, classical models, TCN and GRU compared on identical inputs by
+  replaying the app's own tracker
+- a Model Lab page with live shadow mode and every result rendered from data
 
-## Stage 1 — strong college submission
+## Stage 1 — strengthen the evidence
 
-- Record consented non-driving sessions across at least 15–20 participants.
-- Include normal blinks, reading, conversation, yawns, long closures, head turns, glasses, and multiple lighting conditions.
+- Record consented non-driving sessions to add conversation, glasses and
+  night-time conditions the public sets under-represent.
 - Label events with two reviewers and report inter-rater agreement.
-- Keep every participant in only one train/validation/test split.
-- Measure macro F1, recall for the danger class, false alarms per hour, and alert latency.
-- Compare the system against simple fixed-threshold EAR and single-frame baselines.
+- Tune a separate, looser cut for blink counting so blink-rate recall recovers
+  without reintroducing false closures.
+- Evaluate yawns with the mouth occluded separately; add a hand-over-mouth cue.
+- Read whole RLDD videos (not six 30-second clips) to compare with the published
+  HM-LSTM on equal footing.
 
 ## Stage 2 — research-grade prototype
 
-- Train a temporal model on sequences instead of only aggregated windows.
-- Calibrate the confidence estimate against measured error, not just its inputs.
+- Calibrate the per-frame confidence estimate against measured error, not just its inputs.
 - Evaluate subgroup performance across lighting, glasses, skin tones, facial hair, and camera quality.
 - Add low-light and infrared profiles.
 - Run ablation studies to quantify the value of PERCLOS, gaze, head pose, yawns, blendshape fusion, and phone detection.

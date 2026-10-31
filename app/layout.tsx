@@ -27,9 +27,9 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
 export const metadata: Metadata = {
   metadataBase,
-  title: "Driver Drowsiness & Distraction Detection System",
+  title: "Driver Drowsiness & Distraction Detection",
   description,
-  applicationName: "Driver Drowsiness & Distraction Detection System",
+  applicationName: "Driver Drowsiness & Distraction Detection",
   keywords: [
     "driver drowsiness detection",
     "driver distraction detection",
@@ -39,18 +39,18 @@ export const metadata: Metadata = {
     "multilingual driver alerts",
     "road safety",
   ],
-  authors: [{ name: "Driver Drowsiness & Distraction Detection System Project" }],
-  creator: "Driver Drowsiness & Distraction Detection System Project",
+  authors: [{ name: "Driver Drowsiness & Distraction Detection Project" }],
+  creator: "Driver Drowsiness & Distraction Detection Project",
   openGraph: {
-    title: "Driver Drowsiness & Distraction Detection System",
+    title: "Driver Drowsiness & Distraction Detection",
     description: "Private, on-device driver monitoring with multilingual warnings.",
     type: "website",
-    siteName: "Driver Drowsiness & Distraction Detection System",
-    images: [{ url: socialImage, width: 1731, height: 909, alt: "Driver Drowsiness and Distraction Detection System" }],
+    siteName: "Driver Drowsiness & Distraction Detection",
+    images: [{ url: socialImage, width: 1731, height: 909, alt: "Driver Drowsiness and Distraction Detection" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Driver Drowsiness & Distraction Detection System",
+    title: "Driver Drowsiness & Distraction Detection",
     description: "Private, on-device driver drowsiness and distraction detection.",
     images: [socialImage],
   },
@@ -62,7 +62,7 @@ export const metadata: Metadata = {
   manifest: `${basePath}/manifest.webmanifest`,
   appleWebApp: {
     capable: true,
-    title: "Aegis Drive",
+    title: "Driver Detection",
     statusBarStyle: "black-translucent",
   },
   formatDetection: { telephone: false },

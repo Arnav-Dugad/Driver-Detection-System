@@ -7,7 +7,9 @@ const nextConfig: NextConfig = {
   output: githubPages ? "export" : undefined,
   basePath: "",
   assetPrefix: githubPages ? githubBasePath : "",
-  trailingSlash: githubPages,
+  // vinext prerenders each route at its bare path, so trailing-slash redirects
+  // would block every route except "/". GitHub Pages resolves /lab to lab.html.
+  trailingSlash: false,
 };
 
 export default nextConfig;

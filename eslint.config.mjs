@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     "public/**",
     "examples/**",
     "next-env.d.ts",
+    ".venv/**",
+    ".playwright-mcp/**",
   ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
